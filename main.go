@@ -22,12 +22,16 @@ import (
 	"time"
 )
 
+// version is set by the release build (see .goreleaser.yaml).
+var version = "dev"
+
 const usage = `pathviz - see which netfilter stages a packet crosses
 
 Usage:
   pathviz [run] [flags]      Install the probes and serve the web UI (needs root)
   pathviz rules [flags]      Print the nftables probe rules and exit
   pathviz cleanup            Remove the probes left behind by a killed pathviz
+  pathviz version            Print the version and exit
 
 Flags of "run" and "rules":
   --proto any|tcp|udp|icmp   Protocol to trace (default any)
@@ -61,6 +65,8 @@ func main() {
 		err = cmdRun(args, true)
 	case "cleanup":
 		err = RemoveProbes()
+	case "version":
+		fmt.Println(version)
 	case "help":
 		fmt.Print(usage)
 	default:

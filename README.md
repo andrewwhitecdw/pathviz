@@ -4,6 +4,8 @@ A small packet path visualizer for Linux. It shows which netfilter stages (PRERO
 
 It is built for learning and demos with a few packets per second. It favors correct and readable path visualization over the ability to handle large traffic volumes.
 
+https://github.com/user-attachments/assets/da465c3e-42d9-4892-99f3-dd930da6c813
+
 ## How it works
 
 A packet crosses a fixed chain of checkpoints on its way through the Linux network stack. PathViz puts an observer at every checkpoint. An observer only notes which packets passed by and never touches them.
@@ -29,27 +31,31 @@ The probes coexist with iptables, nftables, and Docker rules. Stopping PathViz r
 
 ## Demo
 
-The fastest way to see PathViz at work is the local demo. It runs three processes on one Linux machine: PathViz, a web server on port 8080, and a client that sends the server a request every two seconds.
+The quickest way to try PathViz without any setup is the [PathViz online playground](https://labs.iximiuz.com/playgrounds/pathviz). It is a regular Ubuntu VM with PathViz already running, its web UI open next to a terminal, and some demo traffic flowing (requires a free sign-in with GitHub).
 
-The demo needs root, because PathViz installs an nftables table. A throwaway machine is the best place for it. The [Go playground](https://labs.iximiuz.com/playgrounds/golang) of iximiuz Labs has everything the demo needs (Go, `make`, `python3`, `curl`, and `nft`). Start it and run in its terminal:
+The demo in the playground is a web server on port 8080 and a client that sends it a request every two seconds. The requests go over the loopback interface, so the page shows every packet cross four hooks: OUTPUT and POSTROUTING on its way out, then PREROUTING and INPUT on its way back in.
+
+The same demo runs on any Linux machine with Go, `make`, `python3`, `curl`, and `nft`. It needs root, because PathViz installs an nftables table, so a throwaway machine is the best place for it:
 
 ```sh
 git clone https://github.com/iximiuz/pathviz.git
 cd pathviz
-make demo-local LISTEN=0.0.0.0:7070
+make demo-local
 ```
 
-Then expose port `7070` of the playground as an HTTP port and open it. The `LISTEN` variable is needed because the playground cannot expose a port that listens only on localhost.
-
-The requests go over the loopback interface, so the page shows every packet cross four hooks: OUTPUT and POSTROUTING on its way out, then PREROUTING and INPUT on its way back in.
-
-`make demo-local-stop` stops the three processes.
-
-The demo also runs on any other Linux machine with the same tools. A plain `make demo-local` keeps the web UI on http://127.0.0.1:7070 there.
+Then open http://127.0.0.1:7070 on that machine. `make demo-local-stop` stops the demo.
 
 ## Usage
 
-Run PathViz on the machine to inspect. It needs root, `nft`, `ss`, and the `nfnetlink_log` kernel module:
+Download the latest release binary to the machine to inspect:
+
+```sh
+arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+curl -L "https://github.com/iximiuz/pathviz/releases/latest/download/pathviz_linux_${arch}.tar.gz" | tar xz pathviz
+sudo install -m 0755 pathviz /usr/local/bin/pathviz
+```
+
+Then run it. It needs root, `nft`, `ss`, and the `nfnetlink_log` kernel module:
 
 ```sh
 sudo pathviz
