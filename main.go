@@ -40,8 +40,16 @@ Flags of "run" and "rules":
                              (in:<name> matches only entering, out:<name> only leaving)
   --port <port>[,...]        Trace packets from or to these ports
   --listen <addr>            Address of the web UI (default 127.0.0.1:7070).
-                             The UI has no login: do not expose it to an
-                             untrusted network (e.g. with 0.0.0.0:7070)
+                             The UI has no login. An address that other machines
+                             can reach (e.g. 0.0.0.0:7070) needs one of the two
+                             flags below
+  --no-packet-view           Do not keep the bytes of the traced packets. The UI
+                             then shows where a packet went, not what is in it
+  --dangerously-listen-on-network
+                             Serve the UI, with everything it can show and do,
+                             to everyone who can reach the --listen address.
+                             Among other things they can read the traced
+                             packets in full, payload included
   --group <n>                NFLOG group to use (default 77)
 
 Examples:
@@ -100,6 +108,8 @@ func cmdRun(args []string, rulesOnly bool) error {
 	ifaces := fs.String("iface", "", "")
 	listen := fs.String("listen", "127.0.0.1:7070", "")
 	group := fs.Int("group", 77, "")
+	noPacketView := fs.Bool("no-packet-view", false, "")
+	dangerouslyListen := fs.Bool("dangerously-listen-on-network", false, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -136,6 +146,9 @@ func cmdRun(args []string, rulesOnly bool) error {
 		fmt.Print(Ruleset(f, *group, skipPorts))
 		return nil
 	}
+	if err := checkExposure(*listen, !*noPacketView, *dangerouslyListen); err != nil {
+		return err
+	}
 	if os.Geteuid() != 0 {
 		return errors.New("installing the probes needs root, run it with sudo")
 	}
@@ -143,7 +156,7 @@ func cmdRun(args []string, rulesOnly bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app := &App{group: *group, skipPorts: skipPorts, subs: map[chan []byte]bool{}, sockets: NewSocketTable(skipPorts)}
+	app := &App{group: *group, packetView: !*noPacketView, skipPorts: skipPorts, subs: map[chan []byte]bool{}, sockets: NewSocketTable(skipPorts)}
 	app.RefreshHost()
 
 	// The tracker must not wait for the socket lookups of a finished journey,
@@ -169,7 +182,7 @@ func cmdRun(args []string, rulesOnly bool) error {
 	}()
 
 	// Bind to the NFLOG group before the probes exist, so no event is missed.
-	capture, err := StartCapture(ctx, *group, tracker)
+	capture, err := StartCapture(ctx, *group, tracker, !*noPacketView)
 	if err != nil {
 		return err
 	}
@@ -215,12 +228,38 @@ func cmdRun(args []string, rulesOnly bool) error {
 	log.Printf("probes installed (nft list table inet %s)", tableName)
 	log.Printf("web UI on http://%s", ln.Addr())
 	if !loopbackHost(uiHost) {
-		log.Printf("WARNING: the web UI listens on %s and has no login. Anyone who can reach this port can see the traced packets and change the filter. Use --listen 127.0.0.1:%s unless the network is trusted.", *listen, uiPortStr)
+		seen := "the addresses and ports of the traced packets"
+		if !*noPacketView {
+			seen = "the traced packets in full, payload included"
+		}
+		log.Printf("WARNING: the web UI listens on %s and has no login. Anyone who can reach this port can see %s, and change the filter.", *listen, seen)
 	}
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// checkExposure refuses a web UI that other machines can reach while it has
+// dangerous features on, unless the user confirmed that this is fine. The UI
+// has no login. The dangerous feature of today is the packet view: the payload
+// of a packet can hold secrets (cookies, tokens, passwords). A feature added
+// later that is risky to expose belongs behind the same check.
+func checkExposure(listen string, packetView, confirmed bool) error {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return fmt.Errorf("bad --listen address: %v", err)
+	}
+	if loopbackHost(host) || !packetView || confirmed {
+		return nil
+	}
+	return fmt.Errorf(`refusing to serve the web UI on %s: it has no login, and it shows the traced packets in full, payload included (cookies, tokens, passwords).
+Pick one:
+  --listen 127.0.0.1:7070   keep the UI on this machine (reach it with: ssh -L 7070:127.0.0.1:7070 <machine>)
+  --no-packet-view          do not keep the bytes of the packets
+  --dangerously-listen-on-network
+                            accept that everyone who can reach %s uses the UI in full
+                            and reads the traced packets`, listen, listen)
 }
 
 // loopbackHost tells whether a listen host is reachable from this machine only.

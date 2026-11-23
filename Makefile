@@ -22,7 +22,8 @@ deploy: build
 # The demo on this machine alone: PathViz, a web server, and a client that
 # sends it requests over the loopback interface (see demo/local.sh). It needs
 # root, python3, and curl. To reach the web UI from
-# outside of the machine: make demo-local LISTEN=0.0.0.0:7070
+# outside of the machine: make demo-local LISTEN=0.0.0.0:7070 (the demo then
+# passes --dangerously-listen-on-network, so its packets can be read from outside too)
 demo-local: build
 	sudo sh demo/local.sh start $(CURDIR)/bin/pathviz $(LISTEN)
 

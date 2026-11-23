@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,10 +21,12 @@ const backlogSize = 300
 
 // App is the state shared by the capture side and the HTTP side.
 type App struct {
-	group     int
-	skipPorts []int
-	lostFn    func() uint64
-	sockets   *SocketTable
+	group int
+	// packetView tells whether the bytes of the traced packets are kept and served.
+	packetView bool
+	skipPorts  []int
+	lostFn     func() uint64
+	sockets    *SocketTable
 
 	mu      sync.Mutex
 	filter  Filter
@@ -40,11 +43,13 @@ type message struct {
 }
 
 type hello struct {
-	Host     string     `json:"host"`
-	Hooks    []Hook     `json:"hooks"`
-	State    HostState  `json:"state"`
-	Filter   Filter     `json:"filter"`
-	Journeys []*Journey `json:"journeys"`
+	Host   string    `json:"host"`
+	Hooks  []Hook    `json:"hooks"`
+	State  HostState `json:"state"`
+	Filter Filter    `json:"filter"`
+	// PacketView tells the page whether it can ask for the bytes of a packet.
+	PacketView bool       `json:"packetView"`
+	Journeys   []*Journey `json:"journeys"`
 }
 
 func encode(typ string, data any) []byte {
@@ -134,7 +139,7 @@ func (a *App) handleEvents(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	ch := make(chan []byte, 1024)
 	a.mu.Lock()
-	first := encode("hello", hello{Host: host, Hooks: Hooks, State: a.host, Filter: a.filter, Journeys: a.backlog})
+	first := encode("hello", hello{Host: host, Hooks: Hooks, State: a.host, Filter: a.filter, PacketView: a.packetView, Journeys: a.backlog})
 	a.subs[ch] = true
 	a.mu.Unlock()
 	defer func() {
@@ -221,6 +226,51 @@ func (a *App) handleRuleset(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, a.ruleset)
 }
 
+// packetHop is a packet as one probe saw it, split into layers and fields.
+type packetHop struct {
+	Hook  string `json:"hook"`
+	Stage string `json:"stage"`
+	Exit  bool   `json:"exit,omitempty"`
+	Dissection
+}
+
+// handlePacket returns the bytes of a traced packet at every hop.
+func (a *App) handlePacket(w http.ResponseWriter, r *http.Request) {
+	if !a.packetView {
+		http.Error(w, "the packet view is disabled (--no-packet-view)", http.StatusForbidden)
+		return
+	}
+	id, err := strconv.ParseUint(r.URL.Query().Get("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad packet id", http.StatusBadRequest)
+		return
+	}
+	var j *Journey
+	a.mu.Lock()
+	for _, item := range a.backlog {
+		if item.ID == id {
+			j = item
+			break
+		}
+	}
+	a.mu.Unlock()
+	if j == nil {
+		http.Error(w, "the packet is not kept anymore", http.StatusNotFound)
+		return
+	}
+	// A finished journey does not change, so it is read without the lock.
+	hops := make([]packetHop, 0, len(j.Hops))
+	for i, hop := range j.Hops {
+		if i >= len(j.raw) {
+			break
+		}
+		hops = append(hops, packetHop{Hook: hop.Hook, Stage: hop.Stage, Exit: hop.Exit, Dissection: Dissect(j.raw[i])})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	json.NewEncoder(w).Encode(map[string]any{"id": j.ID, "hops": hops})
+}
+
 // Handler returns the HTTP handler of the UI and its API.
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -230,5 +280,6 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/filter", a.handleFilter)
 	mux.HandleFunc("/api/clear", a.handleClear)
 	mux.HandleFunc("/api/ruleset", a.handleRuleset)
+	mux.HandleFunc("/api/packet", a.handlePacket)
 	return mux
 }

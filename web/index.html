@@ -85,7 +85,7 @@
       </div>
       <div class="table-wrap">
         <table id="packets">
-          <thead><tr><th>Time</th><th>Proto</th><th>Source</th><th>Destination</th><th>Details</th><th>Outcome</th></tr></thead>
+          <thead><tr><th>Time</th><th>Proto</th><th>Source</th><th>Destination</th><th>Details</th><th>Outcome</th><th aria-label="Packet contents"></th></tr></thead>
           <tbody></tbody>
         </table>
         <div id="empty" class="empty">
@@ -126,6 +126,19 @@
   <p>These are the rules for the current filter. The comments marked <code>[static]</code> are on the parts that are the same for every filter, and the ones marked <code>[filter]</code> are on the parts generated from the current filter. The live rules are in <code>nft list table inet pathviz</code>.</p>
   <pre id="rules-text"></pre>
   <form method="dialog"><button class="primary" autofocus>Close</button></form>
+</dialog>
+
+<dialog id="packet-dialog" aria-labelledby="pd-title">
+  <div class="pd-head">
+    <h2 id="pd-title">Packet</h2>
+    <form method="dialog"><button class="icon" aria-label="Close">&times;</button></form>
+  </div>
+  <div id="pd-hops" class="pd-hops" role="group" aria-label="Where the packet was seen"></div>
+  <p id="pd-note" class="pd-note muted"></p>
+  <div id="pd-body" class="pd-body">
+    <div id="pd-fields" class="pd-fields"></div>
+    <div id="pd-hex" class="pd-hex mono" aria-label="The bytes of the packet"></div>
+  </div>
 </dialog>
 
 <script src="app.js"></script>

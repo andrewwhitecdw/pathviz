@@ -27,6 +27,8 @@ The outcome of a packet is derived from the last probe that saw it:
 - **Stopped in `<stage>`** - the packet entered a stage and was never seen again (e.g., a firewall rule dropped or rejected it).
 - **Lost after `<hook>`** - the packet left a hook and never reached the next one (e.g. no route, or forwarding is disabled).
 
+Every packet in the list has an **Inspect** button. It opens the packet itself: the IP header, the TCP, UDP, or ICMP header, and the payload, split into named fields next to a hex dump. DNS, HTTP, TLS handshakes, and DHCP are decoded as well. The packet can be viewed as every probe saw it, and the fields that changed on the way (e.g. an address or a port that NAT rewrote) are highlighted.
+
 The probes coexist with iptables, nftables, and Docker rules. Stopping PathViz removes the table. If it was killed, run `pathviz cleanup` (or `nft delete table inet pathviz`).
 
 ## Demo
@@ -70,10 +72,16 @@ ssh -L 7070:127.0.0.1:7070 <machine>
 ```
 
 > [!CAUTION]
-> The `--listen 0.0.0.0:7070` flag makes the UI reachable on every address of the machine. The UI has no login and no TLS, so use the flag only on a network you trust, such as a lab playground. Anyone who can reach the port can:
+> The UI has no login and no TLS. Anyone who can reach its port can:
 >
 > - See the traced traffic: the addresses, the ports, the interfaces, and the names and PIDs of the processes with listening sockets.
-> - Change the filter, and with it the nftables rules that PathViz (a root process) installs. A filter that matches all traffic logs every packet at every stage, which can slow down a busy machine.
+> - Read the traced packets in full, payload included. PathViz keeps up to 2048 bytes of every traced packet for the packet view, and a payload can hold cookies, tokens, and passwords.
+> - Change the filter, and with it the nftables rules that PathViz (a root process) installs. A filter that matches all traffic logs every packet at every stage, which can slow down a busy machine, and makes the payload of all of the machine's traffic readable.
+>
+> For that reason PathViz refuses to start with a `--listen` address that other machines can reach (e.g. `0.0.0.0:7070`), unless one of these flags is passed:
+>
+> - `--no-packet-view` keeps no packet bytes. The UI shows where a packet went, without the Inspect button. The first and the last point above still apply.
+> - `--dangerously-listen-on-network` serves the UI as it is, with everything it can show and do, to everyone who can reach it. All three points above then apply. Use it only on a network you trust and with traffic that holds no secrets, such as a lab playground.
 
 To get some traffic to look at, start a web server on the machine and send requests to it:
 
@@ -106,7 +114,8 @@ sudo iptables -t nat -A PREROUTING -p tcp --dport 8080 -j REDIRECT --to-ports 90
 - The owning process is looked up with `ss` shortly after the packet was seen. A process that exits right after sending (e.g. a one-shot `curl`) may no longer be found, and kernel-generated packets (RST, ICMP replies) have no process.
 - The output device of a packet is unknown in PREROUTING. With an output interface in the filter, the PREROUTING probes log every packet that satisfies the rest of the filter, and PathViz keeps only the packets that leave through that interface later. If the filter also has ports or addresses and NAT rewrites them in PREROUTING, such a packet is missed.
 - Traffic is traced in the network namespace PathViz runs in.
-- The web UI has no login. It listens on localhost by default for that reason (see the caution in "Usage"). The filter values are validated, and requests from other websites are rejected.
+- The packet view starts at the IP header (there is no Ethernet header at the netfilter hooks) and shows at most the first 2048 bytes of a packet. It decodes every packet on its own, without putting TCP streams together: an HTTP message is recognized only in the segment that starts it, and TLS only in its handshake records. The checksums of locally sent packets are often not filled in yet at the hooks (the network card does it later).
+- The web UI has no login. It listens on localhost by default for that reason, and it does not start on other addresses without `--no-packet-view` or `--dangerously-listen-on-network` (see the caution in "Usage"). The filter values are validated, and requests from other websites are rejected.
 - If the kernel has to drop probe events (very busy filter), the page shows a warning and marks the affected packets, because a "stopped" outcome may then be wrong.
 
 ## Embedding on an existing page

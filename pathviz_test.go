@@ -242,3 +242,25 @@ func TestFilter(t *testing.T) {
 		t.Fatalf("unexpected ruleset:\n%s", rs)
 	}
 }
+
+func TestCheckExposure(t *testing.T) {
+	for _, c := range []struct {
+		listen                string
+		packetView, confirmed bool
+		ok                    bool
+	}{
+		{"127.0.0.1:7070", true, false, true},
+		{"localhost:7070", true, false, true},
+		{"[::1]:7070", true, false, true},
+		{"0.0.0.0:7070", true, false, false},
+		{":7070", true, false, false},
+		{"[::]:7070", true, false, false},
+		{"172.16.0.20:7070", true, false, false},
+		{"0.0.0.0:7070", false, false, true},
+		{"0.0.0.0:7070", true, true, true},
+	} {
+		if err := checkExposure(c.listen, c.packetView, c.confirmed); (err == nil) != c.ok {
+			t.Errorf("checkExposure(%q, %v, %v) = %v", c.listen, c.packetView, c.confirmed, err)
+		}
+	}
+}

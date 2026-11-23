@@ -31,7 +31,15 @@ start() {
 	mkdir -p /tmp/pathviz-demo
 	echo "Hello from the PathViz demo!" > /tmp/pathviz-demo/index.html
 	systemd-run --quiet --unit pathviz-local-web python3 -m http.server 8080 --directory /tmp/pathviz-demo
-	systemd-run --quiet --unit pathviz-local-daemon "$bin" --listen "$listen" --proto tcp --port 8080
+	# A web UI that other machines can reach must be confirmed. The traffic of
+	# the demo holds no secrets, so its packets may be read from outside.
+	danger=""
+	case "$listen" in
+		127.*|localhost:*) ;;
+		*) danger="--dangerously-listen-on-network" ;;
+	esac
+	# shellcheck disable=SC2086
+	systemd-run --quiet --unit pathviz-local-daemon "$bin" --listen "$listen" $danger --proto tcp --port 8080
 	systemd-run --quiet --unit pathviz-local-send \
 		sh -c 'while true; do curl -s -m 2 -o /dev/null http://127.0.0.1:8080/; sleep 2; done'
 

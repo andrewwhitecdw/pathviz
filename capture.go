@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,15 +14,24 @@ import (
 	nflog "github.com/florianl/go-nflog/v2"
 )
 
-// copyRange is how many bytes of every packet the kernel copies to pathviz.
-// The headers and the fingerprinted payload prefix fit with a wide margin.
-const copyRange = 256
+// How many bytes of every packet the kernel copies to pathviz.
+const (
+	// headerRange holds the headers and the fingerprinted payload prefix with
+	// a wide margin. It is used when the packet view is disabled.
+	headerRange = 256
+	// packetRange holds a whole packet of a usual 1500-byte MTU, so the packet
+	// view can show its payload (e.g. the options of a DHCP message or a TLS
+	// Client Hello).
+	packetRange = 2048
+)
 
 // Capture reads probe events from an NFLOG group.
 type Capture struct {
 	ctx     context.Context
 	nf      *nflog.Nflog
 	tracker *Tracker
+	// keepBytes makes the events carry the captured bytes for the packet view.
+	keepBytes bool
 
 	mu      sync.Mutex
 	ifnames map[uint32]string
@@ -31,11 +41,17 @@ type Capture struct {
 }
 
 // StartCapture binds to the NFLOG group and feeds the tracker until ctx is done.
-func StartCapture(ctx context.Context, group int, tracker *Tracker) (*Capture, error) {
+// With keepBytes it captures whole packets and hands their bytes to the tracker.
+// Without it only the headers are captured, and they are dropped once parsed.
+func StartCapture(ctx context.Context, group int, tracker *Tracker, keepBytes bool) (*Capture, error) {
+	copyRange := headerRange
+	if keepBytes {
+		copyRange = packetRange
+	}
 	nf, err := nflog.Open(&nflog.Config{
 		Group:    uint16(group),
 		Copymode: nflog.CopyPacket,
-		Bufsize:  copyRange,
+		Bufsize:  uint32(copyRange),
 		// Deliver every packet right away instead of batching.
 		QThresh: 1,
 		// Per-group sequence numbers reveal lost events.
@@ -47,7 +63,7 @@ func StartCapture(ctx context.Context, group int, tracker *Tracker) (*Capture, e
 	if err := nf.Con.SetReadBuffer(8 << 20); err != nil {
 		log.Printf("warning: cannot enlarge the netlink buffer: %v", err)
 	}
-	c := &Capture{ctx: ctx, nf: nf, tracker: tracker, ifnames: map[uint32]string{}}
+	c := &Capture{ctx: ctx, nf: nf, tracker: tracker, keepBytes: keepBytes, ifnames: map[uint32]string{}}
 	if err := nf.RegisterWithErrorFunc(ctx, c.onPacket, c.onError); err != nil {
 		nf.Close()
 		return nil, fmt.Errorf("register NFLOG handler: %w", err)
@@ -106,6 +122,10 @@ func (c *Capture) onPacket(a nflog.Attribute) int {
 		return 0
 	}
 	ev := Event{Time: now, Hook: hook, Stage: stage, Packet: pkt}
+	if c.keepBytes {
+		// The bytes are copied: the journey keeps them after this callback returns.
+		ev.Raw = bytes.Clone(*a.Payload)
+	}
 	if a.InDev != nil {
 		ev.In = c.ifname(*a.InDev)
 	}

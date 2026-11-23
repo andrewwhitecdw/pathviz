@@ -27,4 +27,4 @@ systemd-run --quiet --unit pathviz-web python3 -m http.server 8080 --directory /
 systemd-run --quiet --unit pathviz-web-app ip netns exec app python3 -m http.server 9000 --directory /srv/pathviz-demo
 # The filter covers both flows. A page narrows it down by a click or, when embedded, by its URL.
 # The playground's pathviz tab reaches the UI from outside, so it cannot stay on localhost.
-systemd-run --quiet --unit pathviz /usr/local/bin/pathviz --listen 0.0.0.0:7070 --proto tcp --port 8080,9000
+systemd-run --quiet --unit pathviz /usr/local/bin/pathviz --listen 0.0.0.0:7070 --dangerously-listen-on-network --proto tcp --port 8080,9000

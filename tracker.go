@@ -16,6 +16,9 @@ type Event struct {
 	Out    string
 	Mark   uint32
 	Packet Packet
+	// Raw is the captured part of the packet, from the IP header on. It is nil
+	// when the packet view is disabled.
+	Raw []byte
 }
 
 // Hop is an Event as it is shown to the user.
@@ -77,6 +80,8 @@ type Journey struct {
 
 	lastSeen time.Time
 	seen     map[[2]string]bool
+	// raw holds the captured bytes of the packet at every hop, in the order of Hops.
+	raw [][]byte
 }
 
 const (
@@ -133,6 +138,7 @@ func (t *Tracker) Add(ev Event) {
 	}
 	j.seen[stage] = true
 	j.lastSeen = ev.Time
+	j.raw = append(j.raw, ev.Raw)
 	j.Hops = append(j.Hops, Hop{
 		Hook:   ev.Hook,
 		Stage:  ev.Stage,
