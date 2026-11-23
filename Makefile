@@ -1,11 +1,11 @@
 # build, test, and demo-local run on any Linux machine with Go. deploy and
-# demo-playground run on the dev machine of the playground (see playground.yaml).
+# demo-dev-playground run on the dev machine of the playground (see dev-playground.yaml).
 TARGET ?= target
 TARGET_IP ?= 172.16.0.20
 # The address of the web UI in the local demo.
 LISTEN ?= 127.0.0.1:7070
 
-.PHONY: build test deploy demo-local demo-local-stop demo-playground
+.PHONY: build test deploy demo-local demo-local-stop demo-dev-playground
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/pathviz .
@@ -33,7 +33,7 @@ demo-local-stop:
 # request loops here (on the dev machine).
 #   - the local flow goes to the target itself (PREROUTING, INPUT)
 #   - the forwarded flow goes to a network namespace behind the target (FORWARD)
-demo-playground: deploy
+demo-dev-playground: deploy
 	ssh -T $(TARGET) 'sudo sh -s' < demo/target.sh
 	sudo ip route replace 10.200.0.0/24 via $(TARGET_IP)
 	-sudo systemctl stop pathviz-send-local pathviz-send-forward 2>/dev/null

@@ -3,7 +3,7 @@
 #   dev    (172.16.0.10) - Go toolchain and the sources, also the external traffic source
 #   target (172.16.0.20) - the machine whose netfilter hooks are visualized
 #
-# Start it with: labctl playground start flexbox -f playground.yaml
+# Start it with: labctl playground start flexbox -f dev-playground.yaml --ssh
 kind: playground
 name: flexbox
 playground:

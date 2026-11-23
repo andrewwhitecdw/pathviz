@@ -85,10 +85,17 @@ curl http://<machine>:8080/          # from another machine
 Things to try while the traffic flows:
 
 ```sh
-curl http://127.0.0.1:8080/                                                      # loopback crosses four hooks
-ping -c 3 <another-machine>                                                      # OUTPUT and POSTROUTING, replies in PREROUTING and INPUT
-sudo iptables -A INPUT -p tcp --dport 8080 -j DROP                               # stopped in filter/INPUT
-sudo iptables -t nat -A PREROUTING -p tcp --dport 8080 -j REDIRECT --to-ports 9090  # rewrite in nat/PREROUTING
+# loopback traffic crosses four hooks
+curl http://127.0.0.1:8080/
+
+# OUTPUT and POSTROUTING, replies in PREROUTING and INPUT
+ping -c 3 <another-machine>
+
+# packets are stopped in filter/INPUT
+sudo iptables -A INPUT -p tcp --dport 8080 -j DROP
+
+# rewrite destination address in nat/PREROUTING
+sudo iptables -t nat -A PREROUTING -p tcp --dport 8080 -j REDIRECT --to-ports 9090
 ```
 
 ## Limits
@@ -136,19 +143,28 @@ An embedded view never changes what PathViz traces. An address in `ip=` can be a
 ## Development
 
 The code is a single Go module with the web page embedded in the binary. 
-Optionally, the `playground.yaml` file describes a two-VM iximiuz Labs playground which is handy to use for development and testing:
+Optionally, the `dev-playground.yaml` file describes a two-VM iximiuz Labs playground which is handy to use for development and testing. Start it from this folder, and the command drops you into a shell on the `dev` machine:
 
 ```sh
-labctl playground start flexbox -f playground.yaml
+labctl playground start flexbox -f dev-playground.yaml --ssh
 ```
 
-- The `dev` machine has the Go toolchain. Copy this folder there and run `make test` and `make deploy`.
+To open another shell later, run `labctl ssh <playground-id>` (the `dev` machine is the default one).
+
+Then get the code onto the `dev` machine and build it:
+
+```sh
+git clone https://github.com/iximiuz/pathviz.git
+cd pathviz
+make test
+make deploy
+```
+
+- The `dev` machine has the Go toolchain. It is where you edit, test, and build.
 - The `target` is a clean machine to inspect the traffic. `make deploy` installs the binary to `/usr/local/bin/pathviz` there.
 
-There are two demos:
-
-- `make demo-local` runs on one Linux machine (see "Demo" above).
-- `make demo-playground` (on `dev`) uses both machines of the playground. PathViz runs on `target`, the requests come from `dev`, and there are two traffic flows to toggle between:
+The `make demo-dev-playground` (on the `dev` machine) uses both machines of the playground.
+PathViz runs on `target`, the requests come from `dev`, and there are two traffic flows to toggle between:
 
 | Flow | From | To | Hooks on `target` | Pick it with |
 |---|---|---|---|---|

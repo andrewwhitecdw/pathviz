@@ -1,5 +1,5 @@
 #!/bin/sh
-# Prepares the demo on the target machine. Run it as root (the Makefile's "demo-playground" target does).
+# Prepares the demo on the target machine. Run it as root (the Makefile's "demo-dev-playground" target does).
 #
 # It starts PathViz and two web servers (python3 -m http.server):
 #   - on the target itself, port 8080 (traffic to it crosses PREROUTING and INPUT)
