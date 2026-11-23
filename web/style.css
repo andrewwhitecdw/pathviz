@@ -1,0 +1,432 @@
+:root {
+  --paper: #dbe1e9;
+  --panel: #ffffff;
+  --ink: #15223a;
+  --muted: #5d6a80;
+  --line: #c2cad6;
+  --track: #9aa6b8;
+  --chip: #f4f6f9;
+  --lit: #1f55e0;
+  --lit-soft: #dbe5ff;
+  --stop: #d2372b;
+  --stop-soft: #fde3e0;
+  --nat: #b86e00;
+  --nat-soft: #ffeecf;
+  --ok: #0c7d5b;
+  --sans: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+
+/* The dark colors apply when the system asks for them, unless the page is
+   forced to light, and whenever the page is forced to dark (?theme=). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0e1521;
+    --panel: #161f2f;
+    --ink: #e4eaf4;
+    --muted: #93a0b6;
+    --line: #2d3a52;
+    --track: #56657f;
+    --chip: #1d283b;
+    --lit: #7da2ff;
+    --lit-soft: #22356b;
+    --stop: #ff6b5e;
+    --stop-soft: #4a1f1c;
+    --nat: #f0b040;
+    --nat-soft: #45330f;
+    --ok: #4fd1a5;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0e1521;
+  --panel: #161f2f;
+  --ink: #e4eaf4;
+  --muted: #93a0b6;
+  --line: #2d3a52;
+  --track: #56657f;
+  --chip: #1d283b;
+  --lit: #7da2ff;
+  --lit-soft: #22356b;
+  --stop: #ff6b5e;
+  --stop-soft: #4a1f1c;
+  --nat: #f0b040;
+  --nat-soft: #45330f;
+  --ok: #4fd1a5;
+  color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.45 var(--sans);
+  display: flex;
+  flex-direction: column;
+}
+
+h1, h2 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+h1 { font-size: 18px; }
+h1 { white-space: nowrap; }
+h2 { font-size: 14px; }
+code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { color: var(--muted); }
+.spacer { flex: 1; }
+
+/* Header and filter */
+
+/* The header has three arrangements, picked by app.js:
+   - wide: the logo with the help button, the filter, the speed dropdown, and
+     the connection badge in one row.
+   - mid (the filter does not fit in that row): the logo and the badge in the
+     first row, the wrapping filter and the speed dropdown in the second one.
+   - small: the same first row, then the fields in a grid of two columns, with
+     the Apply button and the speed chips in its last row.
+   The line that says what is traced is always under the filter. */
+.bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "brand form speed conn" ". tracing . .";
+  align-items: start;
+  gap: 8px 24px;
+  padding: 12px 20px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.bar .brand { grid-area: brand; }
+.bar .filter { grid-area: form; }
+.bar .tracing { grid-area: tracing; }
+.bar .speed { grid-area: speed; }
+/* A field is a label above an input: the offsets put the logo, the help button,
+   and the badge on the line of the inputs. */
+.bar .conn { grid-area: conn; margin-top: 24px; }
+.brand { display: flex; align-items: center; gap: 10px; margin-top: 20px; height: 34px; }
+
+.bar.mid { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand conn" "form speed" "tracing ."; }
+.bar.mid .brand, .bar.small .brand { margin-top: 0; height: auto; }
+.bar.mid .brand, .bar.mid .conn { margin-bottom: 6px; }
+.bar.mid .conn, .bar.small .conn { margin-top: 0; align-self: center; justify-self: end; }
+
+.filter { display: flex; flex-wrap: nowrap; align-items: end; gap: 10px; min-width: 0; }
+.bar.mid .filter { flex-wrap: wrap; }
+/* The fields shrink down to these widths. Below them the filter does not fit. */
+.filter label { display: flex; flex-direction: column; gap: 3px; flex: 1 1 130px; min-width: 110px; max-width: 220px; font-size: 12px; color: var(--muted); }
+.filter label:first-child { flex: 0 0 100px; min-width: 100px; }
+.filter label:nth-child(3) { min-width: 140px; }
+.filter input, .filter select { width: 100%; min-width: 0; }
+.filter button { white-space: nowrap; flex: none; }
+#filter-msg { align-self: center; font-size: 13px; color: var(--stop); white-space: nowrap; }
+#filter-msg:empty { display: none; }
+#filter-msg.ok { color: var(--ok); }
+
+/* What is traced right now. It starts where the filter fields start, and
+   app.js ends it where they end. */
+.tracing { margin: 0; font-size: 13px; }
+.tracing strong { font-weight: 600; }
+
+/* The speed dropdown looks like one more field of the filter. */
+.speed { display: flex; flex-direction: column; gap: 3px; width: 90px; font-size: 12px; color: var(--muted); }
+.speed select { width: 100%; font-family: var(--mono); }
+.bar .chips { display: none; }
+.chips button { height: 34px; padding: 0 12px; font: 13px var(--mono); }
+
+/* Small: the fields, the button, and the chips are cells of the header's grid. */
+.bar.small { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: none; gap: 10px 12px; }
+.bar.small .filter, .bar.small .speed { display: contents; }
+.bar.small .brand { grid-area: auto; order: 0; }
+.bar.small .conn { grid-area: auto; order: 1; }
+.bar.small .filter label { order: 2; min-width: 0; max-width: none; }
+.bar.small #apply-btn { order: 3; justify-self: start; }
+.bar.small .chips { order: 4; display: inline-flex; justify-self: end; }
+.bar.small #apply-btn, .bar.small .chips { margin-top: 8px; }
+.bar.small #filter-msg { order: 5; grid-column: 1 / -1; white-space: normal; }
+.bar.small .tracing { grid-area: auto; grid-column: 1 / -1; order: 6; }
+.bar.small .speed .lbl, .bar.small .speed select { display: none; }
+
+/* Two buttons joined into one control: exactly one of them is on. */
+.viewswitch { display: inline-flex; }
+.viewswitch button { border-radius: 0; }
+.viewswitch button + button { margin-left: -1px; }
+.viewswitch button:first-child { border-radius: 6px 0 0 6px; }
+.viewswitch button:last-child { border-radius: 0 6px 6px 0; }
+.viewswitch button[aria-pressed="true"] { position: relative; background: var(--ink); border-color: var(--ink); color: var(--panel); }
+.viewswitch button[aria-pressed="false"] { background: var(--panel); border-color: var(--line); color: var(--muted); }
+
+/* A round button with a single character in it. */
+button.icon { width: 30px; height: 30px; padding: 0; border-radius: 50%; font-weight: 700; color: var(--muted); }
+button.icon:hover { color: var(--ink); }
+
+@media (max-width: 420px) {
+  .bar { padding-left: 12px; padding-right: 12px; }
+  .bar { column-gap: 12px; }
+}
+
+input, select, button {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  height: 34px;
+}
+input, select { font-family: var(--mono); font-size: 13px; }
+/* The native arrow of a select hugs the right edge, so the arrow is drawn here. */
+select {
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--track); }
+button.primary { background: var(--ink); color: var(--panel); border-color: var(--ink); font-weight: 600; }
+button:disabled { opacity: .4; cursor: default; }
+button[aria-pressed="false"] { border-color: var(--lit); color: var(--lit); }
+:focus-visible { outline: 2px solid var(--lit); outline-offset: 2px; }
+
+/* The connection badge */
+.conn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel); font-size: 12px; color: var(--muted); white-space: nowrap; flex-shrink: 0;
+}
+.conn::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--track); }
+.conn.up::before { background: var(--ok); }
+.conn.down::before { background: var(--stop); }
+.conn.warn { color: var(--stop); }
+
+/* Layout */
+
+main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 14px 20px 0; }
+/* The space under the last panel. It is an element and not padding, so it is
+   still there when the panels are taller than the window and the page scrolls. */
+main::after { content: ""; flex: 0 0 6px; }
+
+.map {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 22px 12px 6px;
+}
+#diagram { display: block; width: 100%; height: auto; max-height: 52vh; margin: 0 auto; }
+/* The compact arrangement is made for narrow places. It must neither grow into
+   giant letters nor shrink until they are unreadable (then it scrolls sideways). */
+#diagram.compact { max-width: 920px; min-width: 600px; max-height: none; }
+/* The diagram is never squeezed vertically: in a short window the page scrolls. */
+.map { flex-shrink: 0; }
+/* Only the diagram scrolls sideways when it does not fit, never the text under it. */
+#diagram-box { overflow-x: auto; }
+.hint { color: var(--muted); }
+
+.verdict { margin: 26px 0 8px; min-height: 21px; text-align: center; color: var(--muted); }
+.verdict strong { color: var(--ink); }
+.verdict.stopped strong { color: var(--stop); }
+.verdict.done strong { color: var(--ok); }
+
+/* The two tables sit side by side. Folded down to its header, a table gets its
+   own row, and the other one takes the rest. */
+.lower { flex: 1; min-height: 220px; display: flex; gap: 14px; }
+.packets { flex: 6 1 0; min-width: 0; }
+.hops { flex: 5 1 0; min-width: 0; }
+.lower.has-collapsed { flex-direction: column; }
+.lower.has-collapsed .packets, .lower.has-collapsed .hops { flex: 1 1 0; }
+.lower .collapsed { flex: 0 0 auto !important; min-height: 0 !important; }
+.lower.all-collapsed { flex: none; min-height: 0; }
+.collapsed .table-wrap { display: none; }
+.collapsed .section-head { border-bottom: 0; }
+/* A folded table is its title only. */
+.collapsed .section-head button, .collapsed #hops-summary, .collapsed #count { display: none; }
+/* An embed with ?tables= shows only the tables it was asked for. */
+body:not(.show-packets) .packets, body:not(.show-stages) .hops { display: none; }
+.packets, .hops {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#hops-summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.section-head h2 { white-space: nowrap; }
+.section-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); min-height: 51px; cursor: pointer; user-select: none; }
+.section-head:hover .chev { border-color: var(--ink); }
+/* The fold mark: it points down while the table is open and right while it is folded. */
+.chev { width: 7px; height: 7px; margin: 0 4px 3px 2px; border: solid var(--muted); border-width: 0 2px 2px 0; transform: rotate(45deg); transition: transform .15s; flex: none; }
+.collapsed .chev { margin-bottom: 0; transform: rotate(-45deg); }
+.section-head button { height: 30px; padding: 3px 10px; font-size: 13px; }
+/* The summary of the selected packet stays on the title's line and is cut short. */
+.hops .section-head { flex-wrap: nowrap; }
+.table-wrap { flex: 1; overflow: auto; min-height: 0; }
+
+@media (max-width: 1250px) {
+  /* Stacked tables share the height that is left. The section never gets
+     smaller than its tables, so nothing spills out of it into the space under it. */
+  .lower { flex: 1 0 auto; flex-direction: column; }
+  .packets, .hops { flex: 1 1 160px; min-height: 160px; }
+}
+
+/* Tables */
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--panel);
+  text-align: left; font-weight: 600; font-size: 12px; color: var(--muted);
+  padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+td { padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: top; }
+td.mono, td .mono { font-family: var(--mono); font-size: 12.5px; }
+td.wrap { white-space: normal; }
+
+#packets tbody tr { cursor: pointer; }
+#packets tbody tr:hover { background: var(--chip); }
+#packets tbody tr.selected { background: var(--lit-soft); }
+.outcome-stopped { color: var(--stop); }
+.outcome-done { color: var(--ok); }
+
+#hops tr.exit td { color: var(--muted); }
+#hops tr.rewrote td { background: var(--nat-soft); }
+#hops tr.stopped td { background: var(--stop-soft); }
+#hops .note { display: block; font-family: var(--sans); font-size: 12px; color: var(--nat); white-space: normal; }
+#hops tr.stopped .note { color: var(--stop); }
+#hops .changed { color: var(--nat); font-weight: 700; }
+
+.empty { padding: 22px 16px; color: var(--muted); max-width: 62ch; }
+.empty p { margin: 0 0 6px; }
+[hidden] { display: none !important; }
+
+/* Diagram */
+
+.track { fill: none; stroke: var(--track); stroke-width: 2; }
+.track.loop { stroke-dasharray: 3 6; }
+.arrow { fill: var(--track); }
+.hookbox { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.hookname { font: 650 12px var(--sans); fill: var(--ink); letter-spacing: 0.04em; }
+.label { font: 12px var(--sans); fill: var(--muted); }
+.node { fill: var(--panel); stroke: var(--track); stroke-width: 2; }
+.proc { fill: var(--chip); stroke: var(--track); stroke-width: 1.5; }
+.proc-label { font: 600 12px var(--sans); fill: var(--muted); letter-spacing: 0.04em; }
+.track.thin { stroke-width: 1.5; }
+
+/* Clickable parts of the diagram: interfaces, processes, sockets */
+body:not(.embed) .nic, body:not(.embed) .procbody, body:not(.embed) .sock { cursor: pointer; }
+.nic rect, .procbody rect { fill: var(--chip); stroke: var(--track); stroke-width: 1.5; transition: fill .15s, stroke .15s; }
+.sock rect { fill: var(--panel); stroke: var(--track); stroke-width: 1; }
+.nic-name, .proc-name { font: 600 12px var(--mono); fill: var(--ink); }
+.nic-addr, .proc-pid { font: 10.5px var(--mono); fill: var(--muted); }
+.sock text { font: 10.5px var(--mono); fill: var(--ink); }
+.nic.down { opacity: .55; }
+.procchip.extra .procbody rect { stroke-dasharray: 4 3; }
+body:not(.embed) .nic:hover rect, body:not(.embed) .procbody:hover rect, body:not(.embed) .sock:hover rect { stroke: var(--ink); }
+.nic:focus-visible, .procbody:focus-visible, .sock:focus-visible { outline: 2px solid var(--lit); outline-offset: 2px; }
+/* "Traced" is a pick of the user: an ink outline and a tag. It must not look
+   like the blue of a passing packet. */
+.nic.picked rect, .procchip.picked .procbody rect { stroke: var(--ink); stroke-width: 2.5; }
+.sock.picked rect { fill: var(--ink); stroke: var(--ink); }
+.sock.picked text { fill: var(--panel); font-weight: 700; }
+.tag rect { fill: var(--ink); stroke: none; }
+.tag text { font: 700 9.5px var(--sans); fill: var(--panel); letter-spacing: 0.03em; }
+.nic.lit rect, .procchip.lit .procbody rect { fill: var(--lit-soft); stroke: var(--lit); }
+
+.hook rect { fill: var(--chip); stroke: var(--track); stroke-width: 1.5; transition: fill .15s, stroke .15s; }
+.hook .hookname { transition: fill .15s; }
+.hook.lit rect { fill: var(--lit); stroke: var(--lit); }
+.hook.lit .hookname { fill: var(--panel); }
+.hook.lit.rewrote rect { fill: var(--nat); stroke: var(--nat); }
+.hook.lit.stopped rect { fill: var(--stop); stroke: var(--stop); }
+
+.chip rect { fill: var(--chip); stroke: var(--track); stroke-width: 1.5; transition: fill .15s, stroke .15s; }
+.chip text { font: 12px var(--mono); fill: var(--ink); transition: fill .15s; }
+.chip.lit rect { fill: var(--lit); stroke: var(--lit); }
+.chip.lit text { fill: var(--panel); font-weight: 700; }
+.chip.lit.rewrote rect { fill: var(--nat); stroke: var(--nat); }
+.chip.lit.stopped rect { fill: var(--stop); stroke: var(--stop); }
+
+.node.lit, .diamond.lit { stroke: var(--lit); fill: var(--lit-soft); }
+.node.stopped, .diamond.stopped { stroke: var(--stop); fill: var(--stop-soft); }
+.proc.lit { stroke: var(--lit); fill: var(--lit-soft); }
+.diamond { fill: var(--panel); stroke: var(--track); stroke-width: 2; transition: fill .15s, stroke .15s; }
+
+#trail { fill: none; stroke: var(--lit); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; opacity: .9; }
+#stopmark circle { fill: var(--stop); stroke: var(--panel); stroke-width: 2; }
+#stopmark path { stroke: #fff; stroke-width: 2.5; stroke-linecap: round; }
+
+/* Dialog */
+
+dialog {
+  border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px;
+  background: var(--panel); color: var(--ink);
+  width: min(820px, 92vw); max-height: 86vh;
+}
+dialog::backdrop { background: rgb(10 16 28 / .5); }
+dialog h2 { font-size: 16px; margin-bottom: 8px; }
+dialog h3 { font-size: 14px; margin: 14px 0 6px; }
+dialog ol { margin: 0 0 4px; padding-left: 20px; max-width: 75ch; }
+dialog li { margin-bottom: 4px; }
+dialog p { margin: 0 0 10px; max-width: 75ch; }
+/* The explainer keeps its place and only the rules scroll. */
+dialog[open] { display: flex; flex-direction: column; }
+dialog pre .comment { color: var(--muted); }
+dialog pre .tag { font-weight: 700; }
+dialog pre .tag.dynamic { color: var(--nat); }
+dialog pre { flex: 1 1 auto; min-height: 120px; background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow: auto; margin: 0 0 12px; tab-size: 2; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chip rect, .chip text, .diamond { transition: none; }
+}
+
+/* Embedded view (?view=embed): the diagram and its outcome line. It is
+   read-only, and ?tables=packets,stages adds the tables. */
+
+/* The page is tinted, and the diagram and the tables are panels on it. */
+body.embed { background: var(--paper); }
+.embed .bar, .embed .lower, .embed .hint, .embed #tracing, .embed #clear-btn { display: none; }
+/* The header row of an embed: the view switch and the speed on the left, the
+   connection badge on the right. */
+.embed .tracing { display: none; }
+.embedbar { display: flex; align-items: center; gap: 14px; padding: 8px 10px 0; font-size: 12px; }
+.embedbar .group { display: inline-flex; align-items: center; gap: 7px; }
+.embedbar .lbl { color: var(--muted); }
+.embedbar button, .embedbar select { height: 26px; font-size: 12px; }
+.embedbar button { padding: 2px 12px; }
+.embedbar select { padding: 2px 26px 2px 8px; background-position: calc(100% - 13px) 55%, calc(100% - 8px) 55%; }
+/* The side padding belongs to the diagram's scroll box and to the outcome line,
+   so a diagram that does not fit scrolls from edge to edge of the embed. */
+.embed main { padding: 8px 8px 0; gap: 8px; }
+.embed main::after { flex-basis: 0; }
+.embed .map { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 0 0; }
+/* The diagram gets the height that is left and fits into it. */
+.embed #diagram-box { flex: 1; min-height: 0; padding: 0 12px; }
+.embed #diagram, .embed #diagram.compact { height: 100%; max-width: none; max-height: none; }
+/* Below this width the diagram stops shrinking and its box scrolls sideways. */
+.embed #diagram.compact { min-width: 540px; }
+/* Two lines are reserved for the outcome, so the diagram's box keeps its height.
+   A shorter sentence sits in the middle of them, with equal space above and below. */
+.embed .verdict { min-height: 3em; display: flex; align-items: center; justify-content: center; }
+.embed .verdict { margin: 12px 12px 12px; }
+
+/* ?tables= in an embed: the tables sit below the diagram. The diagram keeps its
+   natural height and the tables take the rest. */
+.embed.below .lower { display: flex; }
+.embed.below .map { flex: none; }
+.embed.below #diagram-box { flex: none; }
+.embed.below #diagram { height: auto; max-height: 52vh; }
+.embed.below #diagram.compact { height: auto; max-height: none; }
+.embed.below .verdict { min-height: 21px; }
+
+/* Without ?tables=, the switch of an embed shows the diagram or the tables. */
+.embed.tabular .map { display: none; }
+.embed.tabular .lower { display: flex; }
+/* The tables take all the height the diagram leaves. */
+.embed .lower { flex: 1 1 auto; min-height: 0; }
+.embed .packets, .embed .hops { min-height: 0; }
