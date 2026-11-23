@@ -1126,37 +1126,110 @@ function fieldKeys(hop) {
   return keys;
 }
 
+// linkPacketHooks finds the hooks of the switcher that wrapped to a new row,
+// and sizes the line that links each of them to the last hook of the row above.
+function linkPacketHooks() {
+  const bar = $('#pd-hops');
+  const groups = [...bar.querySelectorAll('.pd-hook')];
+  // A hook that starts a row is wider (it has the turn of the line before its
+  // box), so the rows are found in order, each with the earlier ones marked.
+  for (const g of groups) g.classList.remove('wrap-in', 'wrap-out');
+  for (const run of bar.querySelectorAll('.pd-run')) run.remove();
+  let wrapped = false;
+  groups.forEach((g, i) => {
+    const prev = groups[i - 1];
+    if (!prev || g.offsetTop <= prev.offsetTop) return;
+    wrapped = true;
+    g.classList.add('wrap-in');
+    prev.classList.add('wrap-out');
+    // The part of the line between the rows: from the turn after the previous
+    // hook back to the turn before this one.
+    const run = document.createElement('span');
+    run.className = 'pd-run';
+    run.style.width = `${prev.offsetLeft + prev.offsetWidth - (g.offsetLeft + 26)}px`;
+    g.append(run);
+  });
+  bar.classList.toggle('wrapped', wrapped);
+}
+new ResizeObserver(linkPacketHooks).observe($('#pd-hops'));
+
+// packetStart tells where a packet came from before its first probe, and
+// whether that is known: the diagram starts the trail of a packet the same way.
+function packetStart(j) {
+  const first = j.hops[0];
+  if (j.partial || !first) return ['The packet started to match the filter here, so the earlier stages are not shown.', false];
+  if (first.hook === 'PREROUTING') return [first.in ? `The packet arrived on the ${first.in} interface.` : 'The packet arrived on a network interface.', true];
+  if (first.hook === 'OUTPUT') return [j.from ? `The packet was sent by ${j.from.name} (pid ${j.from.pid}).` : 'The packet was sent by a local process.', true];
+  return [`The packet was first seen in ${first.hook}.`, false];
+}
+
 function showPacketHop(at) {
   const entries = packetView.entries;
   packetView.at = at;
   const hop = entries[at], prev = at > 0 ? entries[at - 1] : null;
 
-  // The switcher: the hooks in the order the packet crossed them, and a
-  // button for every probe of a hook.
+  // The switcher draws the hooks like the diagram does, in the order the
+  // packet crossed them, on one line: a node where the line starts, then for
+  // every hook a box with the hook's name below and a chip for every stage
+  // that saw the packet, and after the box a node for the probe at the end of
+  // the hook. The line ends where the packet was seen last.
   const bar = $('#pd-hops');
   bar.replaceChildren();
-  let group = null;
+  const part = (cls) => { const e = document.createElement('span'); e.className = cls; return e; };
+  let group = null, box = null;
   entries.forEach((h, i) => {
     const first = !group || group.dataset.hook !== h.hook || i === 0;
     if (first) {
-      group = document.createElement('span');
-      group.className = 'pd-hook';
+      group = part('pd-hook');
       group.dataset.hook = h.hook;
-      const name = document.createElement('span');
-      name.className = 'lbl';
+      box = part('pd-box');
+      const name = part('lbl');
       name.textContent = h.hook;
-      group.append(name);
+      if (i === 0) {
+        // The node where the line starts tells where the packet came from:
+        // pointing at it shows that in place of the note about the shown probe.
+        const [text, known] = packetStart(packetView.j);
+        const start = part('pd-in'), node = part(known ? 'node' : 'node unknown');
+        node.addEventListener('mouseenter', () => { $('#pd-note').textContent = text; });
+        node.addEventListener('mouseleave', () => { $('#pd-note').textContent = packetView.note; });
+        node.setAttribute('role', 'img');
+        node.setAttribute('aria-label', text);
+        start.append(node);
+        group.append(start);
+      }
+      group.append(box, name);
       bar.append(group);
     }
     const b = document.createElement('button');
     b.type = 'button';
-    b.textContent = h.exit ? 'exit' : (view.hooksOnly && first ? 'entry' : h.stage);
+    let to = box;
+    // The end of a hook is not a stage: it is a node after the box, like the
+    // nodes between the hooks of the diagram.
+    if (h.exit) {
+      b.className = 'exit';
+      b.setAttribute('aria-label', `The end of ${h.hook}`);
+      to = part('pd-out');
+      group.append(to);
+    } else {
+      b.textContent = view.hooksOnly && first ? 'entry' : h.stage;
+    }
     b.title = h.exit ? `The packet as it left ${h.hook}` : `The packet as it entered ${hopName(h)}`;
     if (h.changed) { b.classList.add('changed'); b.title += ' (it differs from what the previous probe saw)'; }
     if (i === at) b.setAttribute('aria-current', 'true');
     b.addEventListener('click', () => { showPacketHop(i); $('#pd-hops [aria-current]').focus(); });
-    group.append(b);
+    to.append(b);
   });
+  const groups = [...bar.children];
+  groups.forEach((g, i) => {
+    const last = i === groups.length - 1;
+    let out = g.querySelector('.pd-out');
+    // A hook without a probe at its end still has the line to the next hook.
+    if (!out && !last) { out = part('pd-out'); g.append(out); }
+    if (out) g.querySelector('.pd-box').classList.add('leaves');
+    if (out && last) out.classList.add('end');
+  });
+
+  linkPacketHooks();
 
   // The fields that the previous probe saw with another value.
   const before = new Map();
@@ -1253,7 +1326,8 @@ function showPacketHop(at) {
   } else if (prev) {
     notes.push(`Nothing changed since the probe at ${hopName(prev)}.`);
   }
-  $('#pd-note').textContent = notes.join(' ');
+  packetView.note = notes.join(' ');
+  $('#pd-note').textContent = packetView.note;
 }
 
 // Pointing at a field marks its bytes, and pointing at a byte marks its field.
