@@ -235,7 +235,7 @@ main::after { content: ""; flex: 0 0 6px; }
 
 /* The two tables sit side by side. Folded down to its header, a table gets its
    own row, and the other one takes the rest. */
-.lower { flex: 1; min-height: 220px; display: flex; gap: 14px; }
+.lower { flex: 1; display: flex; gap: 14px; }
 .packets { flex: 6 1 0; min-width: 0; }
 .hops { flex: 5 1 0; min-width: 0; }
 .lower.has-collapsed { flex-direction: column; }
@@ -254,7 +254,6 @@ body:not(.show-packets) .packets, body:not(.show-stages) .hops { display: none; 
   border-radius: 10px;
   display: flex;
   flex-direction: column;
-  min-height: 0;
 }
 #hops-summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .section-head h2 { white-space: nowrap; }
@@ -267,12 +266,18 @@ body:not(.show-packets) .packets, body:not(.show-stages) .hops { display: none; 
 /* The summary of the selected packet stays on the title's line and is cut short. */
 .hops .section-head { flex-wrap: nowrap; }
 .table-wrap { flex: 1; overflow: auto; min-height: 0; }
+/* In the full view an open table always shows its header and at least 4 rows
+   (30px each), with room for a horizontal scrollbar. The panel and the section
+   grow to hold it, however tall the panel's head is, and then the page scrolls.
+   The containment keeps the rows out of that minimum: without it the panel
+   would grow to the height of the whole table. */
+body:not(.embed) .table-wrap { min-height: 166px; contain: size; }
 
 @media (max-width: 1250px) {
   /* Stacked tables share the height that is left. The section never gets
      smaller than its tables, so nothing spills out of it into the space under it. */
   .lower { flex: 1 0 auto; flex-direction: column; }
-  .packets, .hops { flex: 1 1 160px; min-height: 160px; }
+  .packets, .hops { flex: 1 1 160px; }
 }
 
 /* Tables */
