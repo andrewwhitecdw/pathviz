@@ -303,13 +303,13 @@ func Ruleset(f Filter, group int, skipPorts []int) string {
 	// "pathviz rules". [static] marks what is the same for every filter, and
 	// [filter] marks what is generated from the current filter.
 	b.WriteString("# [static] Replace the table in one transaction: make sure it exists,\n")
-	b.WriteString("# delete it, and define it anew.\n")
+	b.WriteString("#          delete it, and define it anew.\n")
 	fmt.Fprintf(&b, "table inet %s\n", tableName)
 	fmt.Fprintf(&b, "delete table inet %s\n\n", tableName)
 	fmt.Fprintf(&b, "table inet %s {\n", tableName)
 
 	fmt.Fprintf(&b, "\t# [static] Sets that hold the identity of a traced packet for %s. One set\n", rememberFor)
-	b.WriteString("\t# per kind of packet, keyed on fields that NAT does not rewrite.\n")
+	b.WriteString("\t#          per kind of packet, keyed on fields that NAT does not rewrite.\n")
 	for _, s := range packetKeys {
 		fmt.Fprintf(&b, "\tset %s {\n\t\ttypeof %s\n\t\tflags dynamic,timeout\n\t\ttimeout %s\n\t}\n\n", s.set, s.key, rememberFor)
 	}
@@ -317,7 +317,7 @@ func Ruleset(f Filter, group int, skipPorts []int) string {
 	// "remember" stores the identity of a packet that matched the filter.
 	// It is entered with goto, so its end returns to the probe chain.
 	b.WriteString("\t# [static] Stores the identity of a packet that matched the filter. Its end\n")
-	b.WriteString("\t# returns to the probe chain, which logs the packet.\n")
+	b.WriteString("\t#          returns to the probe chain, which logs the packet.\n")
 	b.WriteString("\tchain remember {\n")
 	for _, s := range packetKeys {
 		fmt.Fprintf(&b, "\t\t%supdate @%s { %s }\n", s.guard, s.set, s.key)
@@ -329,11 +329,11 @@ func Ruleset(f Filter, group int, skipPorts []int) string {
 	selectChain := func(name string, candidates []string) {
 		if candidates == nil {
 			b.WriteString("\t# [static] Decides for a probe whether to log a packet: a return goes back to the\n")
-			b.WriteString("\t# probe, which logs it, and an accept ends the probe without a record.\n")
-			b.WriteString("\t# Only the rules marked [filter] in it depend on the filter.\n")
+			b.WriteString("\t#          probe, which logs it, and an accept ends the probe without a record.\n")
+			b.WriteString("\t#          Only the rules marked [filter] in it depend on the filter.\n")
 		} else {
 			b.WriteString("\t# [filter] The select chain of the PREROUTING probes. It exists because the\n")
-			b.WriteString("\t# filter names an output interface, which is not known in PREROUTING yet.\n")
+			b.WriteString("\t#          filter names an output interface, which is not known in PREROUTING yet.\n")
 		}
 		fmt.Fprintf(&b, "\tchain %s {\n", name)
 		if len(skipPorts) > 0 {
@@ -359,13 +359,13 @@ func Ruleset(f Filter, group int, skipPorts []int) string {
 		// A packet that matched the filter at an earlier probe stays in view even
 		// after NAT rewrote the addresses or ports the filter looks at.
 		b.WriteString("\t\t# [static] A packet that an earlier probe remembered is logged too, even\n")
-		b.WriteString("\t\t# if NAT rewrote the fields the filter looks at.\n")
+		b.WriteString("\t\t#          if NAT rewrote the fields the filter looks at.\n")
 		for _, s := range packetKeys {
 			fmt.Fprintf(&b, "\t\t%s%s @%s return\n", s.guard, s.key, s.set)
 		}
 		if len(candidates) > 0 {
 			b.WriteString("\t\t# [filter] Log every packet that matches the rest of the filter. PathViz\n")
-			b.WriteString("\t\t# keeps it only if it leaves through the right interface later.\n")
+			b.WriteString("\t\t#          keeps it only if it leaves through the right interface later.\n")
 		}
 		for _, m := range candidates {
 			if m != "" {
@@ -401,8 +401,8 @@ func Ruleset(f Filter, group int, skipPorts []int) string {
 	}
 
 	fmt.Fprintf(&b, "\t# [static] The probes. Every hook has one right before each of its stages\n")
-	fmt.Fprintf(&b, "\t# (the stage's priority minus 1) and one at its end (priority %d). A probe\n", exitPriority)
-	fmt.Fprintf(&b, "\t# asks the select chain and logs the chosen packets to NFLOG group %d.\n", group)
+	fmt.Fprintf(&b, "\t#          (the stage's priority minus 1) and one at its end (priority %d). A probe\n", exitPriority)
+	fmt.Fprintf(&b, "\t#          asks the select chain and logs the chosen packets to NFLOG group %d.\n", group)
 	for i, h := range Hooks {
 		if i > 0 {
 			b.WriteString("\n")
