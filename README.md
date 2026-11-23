@@ -1,43 +1,44 @@
 # PathViz
 
-A small packet path visualizer for Linux. It shows which netfilter stages (PREROUTING, INPUT, FORWARD, OUTPUT, POSTROUTING and the raw, mangle, nat, filter positions in each) a packet crosses on the machine, live, in a web page.
+PathViz is a small packet path visualizer for Linux. It shows how packets travel through the netfilter hooks (PREROUTING, INPUT, FORWARD, OUTPUT, POSTROUTING) and their stages (raw, mangle, nat, filter), live in your browser. You can see which stages a packet crosses, where it gets stopped, and how NAT changes it along the way.
 
-It is built for learning and demos with a few packets per second. It favors correct and readable path visualization over the ability to handle large traffic volumes.
+PathViz is built for learning and demos with a few packets per second. The focus is on accurate, readable visualizations rather than handling large traffic volumes.
 
 https://github.com/user-attachments/assets/da465c3e-42d9-4892-99f3-dd930da6c813
 
 ## How it works
 
-A packet crosses a fixed chain of checkpoints on its way through the Linux network stack. PathViz puts an observer at every checkpoint. An observer only notes which packets passed by and never touches them.
-
-PathViz collects the notes, finds the ones that belong to the same packet, and lights up the checkpoints this packet passed, visualizing the path of the packet in the kernel.
+As a packet travels through the Linux network stack, it passes through a series of netfilter hooks and stages.
+PathViz places probes along this path to record where each packet goes, without modifying or interfering with it.
+It then groups the records belonging to the same packet and lights up the stages it passed through.
 
 Under the hood:
 
-1. The checkpoints are the five netfilter hooks and the stages (raw, mangle, nat, filter) inside them.
-2. PathViz installs one nftables table, `inet pathviz`. The table has a probe chain right before every stage of every hook, and one more at the end of the hook.
-3. The first probe that sees a packet matching the filter remembers the packet's identity (the IP ID, the TCP sequence numbers, and similar fields). The later probes recognize the packet by it, even after NAT rewrote its addresses or ports.
-4. Every probe logs the packet to an NFLOG group and lets it go on unchanged.
-5. PathViz reads the group, puts the records of one packet together, and draws the stages the packet was seen at. A packet that entered a stage and was never seen again is shown as stopped there.
+1. PathViz creates an nftables table, `inet pathviz`, with probe chains just before each stage (raw, mangle, nat, filter) and at the end of each of the five netfilter hooks.
+2. The first probe that sees a packet matching the filter records its identity using fields such as the IP ID and TCP sequence numbers. Later probes use this identity to recognize the packet even if NAT changes its addresses or ports.
+3. Each probe logs the packet to an NFLOG group and lets it continue unchanged.
+4. PathViz reads the NFLOG records, matches them to individual packets, and reconstructs their paths. If a packet enters a stage but never reaches the next probe, PathViz marks it as stopped there.
 
-The outcome of a packet is derived from the last probe that saw it:
+The packet's outcome is determined by the last probe that saw it:
 
-- **Delivered locally** - the packet passed the end of INPUT.
-- **Sent / Forwarded via `<device>`** - the packet passed the end of POSTROUTING.
-- **Stopped in `<stage>`** - the packet entered a stage and was never seen again (e.g., a firewall rule dropped or rejected it).
-- **Lost after `<hook>`** - the packet left a hook and never reached the next one (e.g. no route, or forwarding is disabled).
+- **Delivered locally** - the packet reached the end of INPUT.
+- **Sent / Forwarded via `<device>`** - the packet reached the end of POSTROUTING.
+- **Stopped in `<stage>`** - the packet entered a stage but never came out (e.g., a firewall rule dropped or rejected it).
+- **Lost after `<hook>`** - the packet left a hook but never reached the next one (e.g., because of a missing route or disabled IP forwarding).
 
-Every packet in the list has an **Inspect** button. It opens the packet itself: the IP header, the TCP, UDP, or ICMP header, and the payload, split into named fields next to a hex dump. DNS, HTTP, TLS handshakes, and DHCP are decoded as well. The packet can be viewed as every probe saw it, and the fields that changed on the way (e.g. an address or a port that NAT rewrote) are highlighted.
+Each packet also has an **Inspect** button. It opens a detailed view of the IP, TCP/UDP/ICMP headers, and payload, with decoded fields alongside a hex dump. DNS, HTTP, TLS handshakes, and DHCP are decoded too.
 
-The probes coexist with iptables, nftables, and Docker rules. Stopping PathViz removes the table. If it was killed, run `pathviz cleanup` (or `nft delete table inet pathviz`).
+You can inspect the packet as it appeared at each probe. Fields that changed along the way, such as addresses or ports rewritten by NAT, are highlighted.
+
+PathViz probes coexist with existing iptables, nftables, and Docker rules. Stopping PathViz removes its nftables table. If the process was killed, run `pathviz cleanup` (or `nft delete table inet pathviz`) to remove it manually.
 
 ## Demo
 
-The quickest way to try PathViz without any setup is the [PathViz online playground](https://labs.iximiuz.com/playgrounds/pathviz). It is a regular Ubuntu VM with PathViz already running, its web UI open next to a terminal, and some demo traffic flowing (requires a free sign-in with GitHub).
+The easiest way to try PathViz is the [online playground](https://labs.iximiuz.com/playgrounds/pathviz). It's a regular Ubuntu VM with PathViz already running, its web UI open next to a terminal, and some demo traffic flowing. No installation is needed, just a free GitHub sign-in.
 
-The demo in the playground is a web server on port 8080 and a client that sends it a request every two seconds. The requests go over the loopback interface, so the page shows every packet cross four hooks: OUTPUT and POSTROUTING on its way out, then PREROUTING and INPUT on its way back in.
+The demo runs a web server on port 8080 and a client that sends it a request every two seconds. Since the traffic goes over the loopback interface, each packet crosses four hooks: OUTPUT and POSTROUTING on its way out, then PREROUTING and INPUT on its way back in.
 
-The same demo runs on any Linux machine with Go, `make`, `python3`, `curl`, and `nft`. It needs root, because PathViz installs an nftables table, so a throwaway machine is the best place for it:
+You can also run the same demo on any Linux machine with Go, `make`, `python3`, `curl`, and `nft` installed:
 
 ```sh
 git clone https://github.com/iximiuz/pathviz.git
@@ -45,11 +46,13 @@ cd pathviz
 make demo-local
 ```
 
-Then open the address it prints (`http://127.0.0.1:7070/?token=...`) on that machine. `make demo-local-stop` stops the demo.
+PathViz needs root privileges to install its nftables table, so a throwaway VM is a good place to experiment.
+
+Once the demo starts, open the URL it prints (`http://127.0.0.1:7070/?token=...`) in a browser on that machine. Run `make demo-local-stop` to stop it.
 
 ## Usage
 
-Download the latest release binary to the machine to inspect:
+Download the latest release binary to the Linux machine whose traffic you want to inspect:
 
 ```sh
 arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
@@ -57,121 +60,153 @@ curl -L "https://github.com/iximiuz/pathviz/releases/latest/download/pathviz_lin
 sudo install -m 0755 pathviz /usr/local/bin/pathviz
 ```
 
-Then run it. It needs root, `nft`, `ss`, and the `nfnetlink_log` kernel module:
+PathViz requires root privileges, `nft`, `ss`, and the `nfnetlink_log` kernel module.
+
+Start it with:
 
 ```sh
 sudo pathviz
 ```
 
-It prints the address of its web UI:
+The command prints the URL of the web UI:
 
-```
+```text
 web UI on http://127.0.0.1:7070/?token=3f0c6a...
 ```
 
-Open it on that machine. The page shows every packet until you set a filter in it.
+Open it in a browser on that machine. By default, PathViz shows all packets until you configure a filter in the UI.
 
-The address holds an access token. PathViz makes a new one at every start, and the web UI answers only to those who have it. To keep one token over the restarts, put your own (at least 16 characters) into a file that only its owner can read and pass it with `--token-file <path>`, or set the `PATHVIZ_TOKEN` environment variable. There is no flag for the token itself, because other users of the machine can see the flags of a running program. PathViz does not print a token of your own. The page takes the token out of the address bar and remembers it, so the plain http://127.0.0.1:7070 works in the same browser until PathViz is restarted. The token is kept in the browser's storage for this address and port, not in a cookie: a browser sends the cookies of a host to every port of it, so another web server on the same machine would get the token. A page without the right token asks for it.
+### Accessing the web UI
 
-The web UI listens on `127.0.0.1:7070` by default, so only the machine itself can open it. To open it from your own computer, forward the port over SSH:
+PathViz generates a new access token on every start and includes it in the printed URL. The web UI requires this token for all requests.
 
-```sh
-ssh -L 7070:127.0.0.1:7070 <machine>
-```
+Once you've opened the URL, the browser remembers the token, so you can use plain `http://127.0.0.1:7070` in the same browser until PathViz restarts. The token is kept in browser storage for that address and port, not in a cookie. Without a valid token, the page prompts you to enter one.
+
+To use a persistent token, either:
+
+- Store a token of at least 16 characters in a file readable only by its owner and pass `--token-file <path>`.
+- Set the `PATHVIZ_TOKEN` environment variable.
+
+By default, the web UI listens on `127.0.0.1:7070` and isn't accessible from other machines.
 
 > [!CAUTION]
-> Whoever has the token can:
+> **Treat the PathViz access token like a password.** Anyone with the token can:
 >
-> - See the traced traffic: the addresses, the ports, the interfaces, and the names and PIDs of the processes with listening sockets.
-> - Read the traced packets in full, payload included. PathViz keeps up to 2048 bytes of every traced packet for the packet view, and a payload can hold cookies, tokens, and passwords. With `--no-packet-view` PathViz keeps no packet bytes, and the page has no Inspect button.
-> - Change the filter, and with it the nftables rules that PathViz (a root process) installs. A filter that matches all traffic logs every packet at every stage, which can slow down a busy machine, and makes the payload of all of the machine's traffic readable.
+> - See traced traffic, including IP addresses, ports, interfaces, and the names and PIDs of processes with listening sockets.
+> - Inspect packet contents, including payloads that may contain cookies, tokens, or passwords. PathViz retains up to 2048 bytes per packet for inspection. Use `--no-packet-view` to disable packet inspection and avoid retaining packet bytes.
+> - Change the capture filter and, consequently, the nftables rules installed by PathViz (which runs as root). A broad filter can capture sensitive traffic and slow down a busy machine.
 >
-> So treat the address with the token as a password:
+> Keep in mind:
 >
-> - PathViz writes it to its output. When PathViz runs as a service, the address is in the service's log (e.g. `journalctl -u <unit>`).
-> - The web UI has no TLS. With `--listen 0.0.0.0:7070` the UI is reachable on every address of the machine, and the token crosses the network in the clear: anyone who can watch that network can pick it up. Prefer the SSH forward above, or put a TLS proxy in front.
-> - `--dangerously-skip-token` turns the token off. Everyone who can reach the `--listen` address can then do all of the above. That includes the other users and programs of the machine when the UI listens on localhost, and any website open in a browser on it. Use it only on a throwaway machine whose traffic holds no secrets, such as a lab playground.
+> - PathViz prints the access URL to its output. If it runs as a service, the token may also appear in its logs (e.g., `journalctl -u <unit>`).
+> - The web UI uses plain HTTP, not HTTPS. If you expose it with `--listen 0.0.0.0:7070`, the token travels over the network unencrypted. Prefer SSH port forwarding or a TLS reverse proxy.
+> - `--dangerously-skip-token` disables authentication entirely. Anyone who can reach the listening address can inspect traffic and change filters, including other local users and programs when listening on localhost. Use this option only in isolated, disposable environments with no sensitive traffic.
 
-To get some traffic to look at, start a web server on the machine and send requests to it:
+### Generating some traffic
+
+Start a simple HTTP server on the machine running PathViz and send it a request from another machine:
 
 ```sh
 python3 -m http.server 8080          # on the machine with PathViz
 curl http://<machine>:8080/          # from another machine
 ```
 
-Things to try while the traffic flows:
+Here are a few more things to try:
 
 ```sh
-# loopback traffic crosses four hooks
+# Loopback traffic crosses four hooks
 curl http://127.0.0.1:8080/
 
-# OUTPUT and POSTROUTING, replies in PREROUTING and INPUT
+# OUTPUT and POSTROUTING, with replies going through PREROUTING and INPUT
 ping -c 3 <another-machine>
 
-# packets are stopped in filter/INPUT
+# Drop incoming HTTP traffic in filter/INPUT
 sudo iptables -A INPUT -p tcp --dport 8080 -j DROP
 
-# rewrite destination address in nat/PREROUTING
+# Rewrite the destination port in nat/PREROUTING
 sudo iptables -t nat -A PREROUTING -p tcp --dport 8080 -j REDIRECT --to-ports 9090
 ```
 
 ## Limits
 
-- A packet that matches the filter only after NAT rewrote it (e.g. the replies of a DNAT'ed connection, filtered by the original port) is shown from that stage on, and the page says so. Filter by something NAT does not change, such as the client address, to see such packets in full.
-- The page shows which stages a packet crossed. It does not show which of your own rules matched.
-- The web UI's own port (7070 by default) is never traced.
-- The owning process is looked up with `ss` shortly after the packet was seen. A process that exits right after sending (e.g. a one-shot `curl`) may no longer be found, and kernel-generated packets (RST, ICMP replies) have no process.
-- The output device of a packet is unknown in PREROUTING. With an output interface in the filter, the PREROUTING probes log every packet that satisfies the rest of the filter, and PathViz keeps only the packets that leave through that interface later. If the filter also has ports or addresses and NAT rewrites them in PREROUTING, such a packet is missed.
-- Traffic is traced in the network namespace PathViz runs in.
-- The packet view starts at the IP header (there is no Ethernet header at the netfilter hooks) and shows at most the first 2048 bytes of a packet. It decodes every packet on its own, without putting TCP streams together: an HTTP message is recognized only in the segment that starts it, and TLS only in its handshake records. The checksums of locally sent packets are often not filled in yet at the hooks (the network card does it later).
-- The web UI is protected by an access token only (see the caution in "Usage"). It has no user accounts and no TLS. The filter values are validated, and requests from other websites are rejected.
-- If the kernel has to drop probe events (very busy filter), the page shows a warning and marks the affected packets, because a "stopped" outcome may then be wrong.
+PathViz is a learning tool, not a full-featured packet capture system. There are a few things to keep in mind:
+
+- **NAT and capture filters.** If a packet matches the filter only after NAT changes it, PathViz can show its path only from that stage onward. For example, this can happen when filtering replies to a DNAT'ed connection by the original port. To capture the full path, filter by something NAT doesn't change, such as the client IP address.
+- **Rule visibility.** PathViz shows which netfilter stages a packet crosses, but not which individual firewall rules matched it.
+- **Web UI traffic.** PathViz never traces its own web UI port (7070 by default).
+- **Process identification.** PathViz uses `ss` to look up the owning process shortly after a packet is seen. Short-lived processes, such as a one-shot `curl`, may have exited by then. Kernel-generated packets, such as TCP RSTs and ICMP replies, have no owning process.
+- **Output interface filtering.** The output interface isn't known yet at PREROUTING. When filtering by output interface, PathViz initially records all packets matching the other filter conditions and keeps only those that later leave through the selected interface. Packets may be missed if the filter also includes addresses or ports that NAT rewrites in PREROUTING.
+- **Network namespaces.** PathViz traces traffic only in the network namespace where it runs.
+- **Packet inspection.** The packet view starts at the IP header (netfilter hooks don't expose the Ethernet header) and includes at most 2048 bytes. Each packet is decoded independently, without TCP stream reassembly. HTTP is recognized only in the segment where a message begins, and TLS only in handshake records. Checksums of locally generated packets may appear incomplete because the network card fills them in later.
+- **Web UI security.** Access is controlled by a token, without user accounts or built-in TLS. Filter values are validated, and requests from other websites are rejected. See the security warning in the Usage section.
+- **Dropped probe events.** Under heavy traffic, the kernel may drop some probe events. PathViz warns about this and marks affected packets, since their reported outcomes may be incorrect.
 
 ## Embedding on an existing page
 
-PathViz can be embedded on an existing web page as an iframe (e.g., in a blog post).
-The embedded page's layout can be configured via its URL, so a view of it can be put into an `<iframe>`:
+PathViz can also be embedded in another web page, such as a blog post, using an `<iframe>`.
+
+The embedded view can be customized through URL parameters:
 
 | Parameter | Effect |
 |---|---|
-| `view=embed` | The diagram with its outcome line, under a header row with the view switch, the speed choice, and the connection badge. The filter fields and the tables are hidden, and the view is read-only: its interfaces, processes, and sockets cannot be clicked. |
-| `tables=packets,stages` | In an embedded view: puts these tables below the diagram (`packets`, `stages`, or both). Without it, an embedded view has a "View: Path / Packets" switch in its header row, and the tables take the place of the diagram when it is flipped. In the full view: which tables are unfolded at first (`tables=` folds both, `tables=packets` folds the stages). A packet in the list can still be selected. |
-| `detail=hooks` | One box per hook (PREROUTING, INPUT, ...) that lights up as a whole. A hook that rewrote the packet (NAT) turns amber, and a hook that stopped it turns red. The raw, mangle, nat, and filter stages are hidden, in the diagram, the texts, and the table. |
-| `theme=dark` or `theme=light` | Forces the colors. Without it, the page follows the system setting. Works in the full view too. |
-| `speed=0.5` | How fast a packet travels through the diagram, as a playback rate like in a video player: `1` is normal, and the range is `0.25` to `2` in steps of 0.25. The names `slow`, `medium`, and `fast` stand for 0.5, 1, and 1.5. Both views also have a Speed dropdown in the header. On a small screen the full view shows three chips in its place (x0.5, x1, x1.5). |
-| `ifaces=eth0,lo` | Only these interface cards are drawn. |
-| `procs=nginx,:8080` | Only these processes are drawn. An item is a process name or a port the process listens on. |
-| `proto=tcp`, `port=8080,9000`, `ip=10.0.0.1`, `iface=in:eth0` | The display filter of an embedded view (see below). The values are the ones of the command-line flags. |
+| `view=embed` | Shows a compact, read-only diagram with the packet outcome and header controls. The filter fields and tables are hidden by default, and interfaces, processes, and sockets aren't clickable. |
+| `tables=packets,stages` | Shows the selected tables (`packets`, `stages`, or both) below the diagram. Without this parameter, the embedded view has a Path/Packets switch that replaces the diagram with the tables. In the full view, this parameter controls which tables are initially expanded (`tables=` collapses both). Packet selection remains available. |
+| `detail=hooks` | Shows one box per netfilter hook instead of its individual stages. Hooks affected by NAT turn amber; hooks that stop a packet turn red. |
+| `theme=dark` or `theme=light` | Overrides the system color scheme. Works in both embedded and full views. |
+| `speed=0.5` | Controls packet animation speed, from `0.25` to `2` in steps of `0.25`. The aliases `slow`, `medium`, and `fast` correspond to `0.5`, `1`, and `1.5`. Speed can also be changed in the UI. |
+| `ifaces=eth0,lo` | Shows only the selected interface cards. |
+| `procs=nginx,:8080` | Shows only the selected processes, matched by name or listening port. |
+| `proto=tcp`, `port=8080,9000`, `ip=10.0.0.1`, `iface=in:eth0` | Applies a display filter to the embedded view, using the same values as the corresponding command-line flags. |
+
+For example:
 
 ```html
 <iframe src="https://<pathviz-url>/?view=embed&detail=hooks&port=8080&ifaces=eth0&procs=:8080" width="100%" height="460"></iframe>
 ```
 
-An embedded view needs the access token like any other page. Either add `token=<token>` to its URL and give that PathViz a token of its own (`--token-file`), so it stays the same over the restarts, or run that PathViz with `--dangerously-skip-token`. A token in the URL of an embed is readable by everyone who can read the embedding page.
+An embedded view needs an access token, just like the regular UI. You can either:
 
-### Several embeds of one PathViz
+- Add `token=<token>` to the iframe URL, using a persistent token configured with `--token-file`.
+- Run PathViz with `--dangerously-skip-token`.
 
-The filter of PathViz itself (the command-line flags, the fields and the clicks of the full view) decides what is traced, and it is the same for every page.
+**Be careful:** A token included in an iframe URL is visible to anyone who can access the embedding page. Use a dedicated PathViz instance in an isolated environment, and don't expose sensitive traffic.
 
-An embedded view has a display filter of its own on top. It shows only the traced packets that match it, so several embeds on one page can show different traffic:
+### Multiple embeds from one PathViz instance
 
-1. Start `pathviz` with a filter that covers all the cases, e.g. `--proto tcp --port 8080,9000`.
-2. Give every embed its own display filter in the URL, e.g. `port=8080` for the local flow and `iface=out:veth-app` for the forwarded one.
+PathViz has two levels of filtering:
 
-An embedded view never changes what PathViz traces. An address in `ip=` can be an IPv4 prefix (`10.0.0.0/8`). An IPv6 address must be written in full.
+- **Capture filter** - configured through command-line flags or the full web UI. It determines which packets PathViz actually traces and is shared by all views.
+- **Display filter** - configured through an embedded view's URL. It selects which of the already captured packets that particular view shows.
+
+This lets you put several embeds on the same page, each showing a different traffic flow.
+
+For example:
+
+1. Start PathViz with a capture filter covering both flows: `--proto tcp --port 8080,9000`.
+2. Give each embed its own display filter: `port=8080` for local traffic, `iface=out:veth-app` for forwarded traffic.
+
+Embedded views never change the capture filter.
+
+The `ip=` parameter also accepts IPv4 prefixes (e.g., `10.0.0.0/8`). IPv6 addresses must be written in full.
 
 ## Development
 
-The code is a single Go module with the web page embedded in the binary. 
-Optionally, the `dev-playground.yaml` file describes a two-VM iximiuz Labs playground which is handy to use for development and testing. Start it from this folder, and the command drops you into a shell on the `dev` machine:
+PathViz is a single Go module with the web UI embedded in the binary.
+
+For development and testing, the repository includes `dev-playground.yaml`, which defines a two-VM [iximiuz Labs](https://labs.iximiuz.com/) playground:
+
+- **`dev`** - the development machine with the Go toolchain, used for editing, testing, and building.
+- **`target`** - a clean Linux machine for inspecting traffic. `make deploy` installs the binary to `/usr/local/bin/pathviz` on this machine.
+
+To start the playground, run this command from the repository directory:
 
 ```sh
 labctl playground start flexbox -f dev-playground.yaml --ssh
 ```
 
-To open another shell later, run `labctl ssh <playground-id>` (the `dev` machine is the default one).
+It opens an SSH session on the `dev` machine. To open another session later, use `labctl ssh <playground-id>` (`dev` is the default machine).
 
-Then get the code onto the `dev` machine and build it:
+Clone the repository on `dev`, run the tests, and deploy the binary to `target`:
 
 ```sh
 git clone https://github.com/iximiuz/pathviz.git
@@ -180,13 +215,15 @@ make test
 make deploy
 ```
 
-- The `dev` machine has the Go toolchain. It is where you edit, test, and build.
-- The `target` is a clean machine to inspect the traffic. `make deploy` installs the binary to `/usr/local/bin/pathviz` there.
+To start a demo using both machines, run:
 
-The `make demo-dev-playground` (on the `dev` machine) uses both machines of the playground.
-PathViz runs on `target`, the requests come from `dev`, and there are two traffic flows to toggle between:
+```sh
+make demo-dev-playground
+```
 
-| Flow | From | To | Hooks on `target` | Pick it with |
+PathViz runs on `target`, while `dev` generates traffic. The demo includes two flows you can switch between:
+
+| Flow | Source | Destination | Hooks on `target` | Select using |
 |---|---|---|---|---|
-| Local | `dev` | `target:8080`, a web server on `target` | PREROUTING, INPUT (replies: OUTPUT, POSTROUTING) | the `tcp :8080` socket |
-| Forwarded | `dev` | `10.200.0.2:9000`, a web server in the `app` network namespace behind `target` | PREROUTING, FORWARD, POSTROUTING | the `veth-app` card (right for requests, left for replies) |
+| Local | `dev` | `target:8080`, a web server running on `target` | PREROUTING, INPUT (replies: OUTPUT, POSTROUTING) | The `tcp :8080` socket |
+| Forwarded | `dev` | `10.200.0.2:9000`, a web server in the `app` network namespace behind `target` | PREROUTING, FORWARD, POSTROUTING | The `veth-app` card (right for requests, left for replies) |
