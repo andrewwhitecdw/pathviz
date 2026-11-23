@@ -128,6 +128,17 @@
   <form method="dialog"><button class="primary" autofocus>Close</button></form>
 </dialog>
 
+<dialog id="token-dialog" aria-labelledby="token-title">
+  <h2 id="token-title">Access token needed</h2>
+  <p>PathViz shows its page only to those who have its access token. It makes a new token at every start and prints the address of this page with the token in it, like <code>http://127.0.0.1:7070/?token=…</code></p>
+  <p>Open that address, or paste it (or the token alone) here:</p>
+  <form id="token-form">
+    <input id="token-input" type="password" autocomplete="off" spellcheck="false" aria-label="Access token" autofocus>
+    <button class="primary">Open</button>
+  </form>
+  <p id="token-msg" class="token-msg" role="alert"></p>
+</dialog>
+
 <dialog id="packet-dialog" aria-labelledby="pd-title">
   <div class="pd-head">
     <h2 id="pd-title">Packet</h2>

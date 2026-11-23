@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -243,24 +246,130 @@ func TestFilter(t *testing.T) {
 	}
 }
 
-func TestCheckExposure(t *testing.T) {
-	for _, c := range []struct {
-		listen                string
-		packetView, confirmed bool
-		ok                    bool
-	}{
-		{"127.0.0.1:7070", true, false, true},
-		{"localhost:7070", true, false, true},
-		{"[::1]:7070", true, false, true},
-		{"0.0.0.0:7070", true, false, false},
-		{":7070", true, false, false},
-		{"[::]:7070", true, false, false},
-		{"172.16.0.20:7070", true, false, false},
-		{"0.0.0.0:7070", false, false, true},
-		{"0.0.0.0:7070", true, true, true},
-	} {
-		if err := checkExposure(c.listen, c.packetView, c.confirmed); (err == nil) != c.ok {
-			t.Errorf("checkExposure(%q, %v, %v) = %v", c.listen, c.packetView, c.confirmed, err)
+func TestToken(t *testing.T) {
+	app := &App{token: "secret", packetView: true, subs: map[chan []byte]bool{}}
+	h := app.Handler()
+	get := func(path, bearer string) int {
+		r := httptest.NewRequest("GET", path, nil)
+		if bearer != "" {
+			r.Header.Set("Authorization", "Bearer "+bearer)
 		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	for _, c := range []struct {
+		path, bearer string
+		want         int
+	}{
+		{"/", "", 200},
+		{"/app.js", "", 200},
+		{"/api/session", "", 401},
+		{"/api/session", "wrong", 401},
+		{"/api/session?token=wrong", "", 401},
+		{"/api/session", "secret", 204},
+		{"/api/session?token=secret", "", 204},
+		{"/api/ruleset", "", 401},
+		{"/api/packet?id=1", "", 401},
+		{"/api/packet?id=1", "secret", 404},
+		{"/api/events", "", 401},
+		{"/api/nothing", "", 401},
+	} {
+		if got := get(c.path, c.bearer); got != c.want {
+			t.Errorf("GET %s (bearer %q) = %d, want %d", c.path, c.bearer, got, c.want)
+		}
+	}
+	r := httptest.NewRequest("POST", "/api/clear", strings.NewReader("{}"))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 401 {
+		t.Errorf("POST /api/clear without the token = %d, want 401", w.Code)
+	}
+
+	// No cookies: a browser would send them to every port of the host.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/?token=secret", nil))
+	if c := w.Result().Cookies(); len(c) != 0 {
+		t.Errorf("the page must not set cookies: %v", c)
+	}
+	r = httptest.NewRequest("GET", "/api/session", nil)
+	r.AddCookie(&http.Cookie{Name: "pathviz_token_7070", Value: "secret"})
+	r.AddCookie(&http.Cookie{Name: "token", Value: "secret"})
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 401 {
+		t.Errorf("GET /api/session with the token in a cookie = %d, want 401", w.Code)
+	}
+
+	// --dangerously-skip-token: no token, no check.
+	app.token = ""
+	if got := get("/api/session", ""); got != 204 {
+		t.Errorf("GET /api/session without a token check = %d, want 204", got)
+	}
+
+	a, _ := newToken()
+	b, _ := newToken()
+	if len(a) != 32 || a == b {
+		t.Errorf("bad tokens: %q, %q", a, b)
+	}
+
+	const own, other = "0123456789abcdef", "fedcba9876543210"
+	for _, c := range []struct {
+		flag, env string
+		skip      bool
+		want      string // "random", "error", or the token
+	}{
+		{"", "", false, "random"},
+		{"", "", true, ""},
+		{own, "", false, own},
+		{"", own, false, own},
+		{own, other, false, own},
+		{"short", "", false, "error"},
+		{"0123456789 abcdef", "", false, "error"},
+		{own, "", true, "error"},
+		{"", own, true, "error"},
+	} {
+		got, isOwn, err := pickToken(c.flag, c.env, c.skip)
+		switch c.want {
+		case "error":
+			if err == nil {
+				t.Errorf("pickToken(%q, %q, %v) must fail", c.flag, c.env, c.skip)
+			}
+		case "random":
+			if err != nil || len(got) != 32 || isOwn {
+				t.Errorf("pickToken(%q, %q, %v) = %q, %v, %v", c.flag, c.env, c.skip, got, isOwn, err)
+			}
+		default:
+			if err != nil || got != c.want || isOwn != (c.want != "") {
+				t.Errorf("pickToken(%q, %q, %v) = %q, %v, %v", c.flag, c.env, c.skip, got, isOwn, err)
+			}
+		}
+	}
+}
+
+func TestTokenFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string, mode os.FileMode) string {
+		path := dir + "/" + name
+		if err := os.WriteFile(path, []byte(content), mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	if got, err := readTokenFile(write("ok", "  0123456789abcdef\n", 0o600)); err != nil || got != "0123456789abcdef" {
+		t.Errorf("readTokenFile = %q, %v", got, err)
+	}
+	if _, err := readTokenFile(write("open", "0123456789abcdef", 0o644)); err == nil {
+		t.Error("a token file that others can read must be refused")
+	}
+	if _, err := readTokenFile(write("empty", "\n", 0o600)); err == nil {
+		t.Error("an empty token file must be refused")
+	}
+	if _, err := readTokenFile(dir + "/missing"); err == nil {
+		t.Error("a missing token file must be refused")
 	}
 }

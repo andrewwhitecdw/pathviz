@@ -8,6 +8,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -37,20 +39,21 @@ Flags of "run" and "rules":
   --proto any|tcp|udp|icmp   Protocol to trace (default any)
   --ip <addr|cidr>[,...]     Trace packets from or to these addresses
   --iface <name>[,...]       Trace packets that enter or leave through these interfaces
-                             (in:<name> matches only entering, out:<name> only leaving)
+                             (in:<name> only entering, out:<name> only leaving)
   --port <port>[,...]        Trace packets from or to these ports
-  --listen <addr>            Address of the web UI (default 127.0.0.1:7070).
-                             The UI has no login. An address that other machines
-                             can reach (e.g. 0.0.0.0:7070) needs one of the two
-                             flags below
-  --no-packet-view           Do not keep the bytes of the traced packets. The UI
-                             then shows where a packet went, not what is in it
-  --dangerously-listen-on-network
-                             Serve the UI, with everything it can show and do,
-                             to everyone who can reach the --listen address.
-                             Among other things they can read the traced
-                             packets in full, payload included
+  --listen <addr>            Address of the web UI (default 127.0.0.1:7070)
   --group <n>                NFLOG group to use (default 77)
+
+Flags of "run":
+  --token-file <path>        Take the access token of the web UI from this file
+                             (or from PATHVIZ_TOKEN) instead of a new random one.
+                             At least 16 characters, in a file only you can read
+  --no-packet-view           Do not keep or show the contents of the packets
+  --dangerously-skip-token   Serve the web UI without the access token: everyone
+                             who can reach it can read the traced packets and
+                             change the filter
+
+"run" prints the address of the web UI with the access token in it.
 
 Examples:
   sudo pathviz
@@ -109,7 +112,8 @@ func cmdRun(args []string, rulesOnly bool) error {
 	listen := fs.String("listen", "127.0.0.1:7070", "")
 	group := fs.Int("group", 77, "")
 	noPacketView := fs.Bool("no-packet-view", false, "")
-	dangerouslyListen := fs.Bool("dangerously-listen-on-network", false, "")
+	tokenFile := fs.String("token-file", "", "")
+	skipToken := fs.Bool("dangerously-skip-token", false, "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -132,7 +136,7 @@ func cmdRun(args []string, rulesOnly bool) error {
 		return err
 	}
 
-	uiHost, uiPortStr, err := net.SplitHostPort(*listen)
+	_, uiPortStr, err := net.SplitHostPort(*listen)
 	if err != nil {
 		return fmt.Errorf("bad --listen address: %v", err)
 	}
@@ -146,7 +150,14 @@ func cmdRun(args []string, rulesOnly bool) error {
 		fmt.Print(Ruleset(f, *group, skipPorts))
 		return nil
 	}
-	if err := checkExposure(*listen, !*noPacketView, *dangerouslyListen); err != nil {
+	fileToken := ""
+	if *tokenFile != "" {
+		if fileToken, err = readTokenFile(*tokenFile); err != nil {
+			return err
+		}
+	}
+	token, ownToken, err := pickToken(fileToken, os.Getenv("PATHVIZ_TOKEN"), *skipToken)
+	if err != nil {
 		return err
 	}
 	if os.Geteuid() != 0 {
@@ -157,6 +168,7 @@ func cmdRun(args []string, rulesOnly bool) error {
 	defer stop()
 
 	app := &App{group: *group, packetView: !*noPacketView, skipPorts: skipPorts, subs: map[chan []byte]bool{}, sockets: NewSocketTable(skipPorts)}
+	app.token = token
 	app.RefreshHost()
 
 	// The tracker must not wait for the socket lookups of a finished journey,
@@ -226,13 +238,15 @@ func cmdRun(args []string, rulesOnly bool) error {
 		srv.Close()
 	}()
 	log.Printf("probes installed (nft list table inet %s)", tableName)
-	log.Printf("web UI on http://%s", ln.Addr())
-	if !loopbackHost(uiHost) {
-		seen := "the addresses and ports of the traced packets"
-		if !*noPacketView {
-			seen = "the traced packets in full, payload included"
-		}
-		log.Printf("WARNING: the web UI listens on %s and has no login. Anyone who can reach this port can see %s, and change the filter.", *listen, seen)
+	switch {
+	case ownToken:
+		// A token that outlives this run is kept out of the log.
+		log.Printf("web UI on http://%s/?token=<your token>", ln.Addr())
+	case app.token != "":
+		log.Printf("web UI on http://%s/?token=%s", ln.Addr(), app.token)
+	default:
+		log.Printf("web UI on http://%s", ln.Addr())
+		log.Printf("WARNING: the access token is off (--dangerously-skip-token). Everyone who can reach %s can read the traced packets and change the filter.", *listen)
 	}
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -240,34 +254,66 @@ func cmdRun(args []string, rulesOnly bool) error {
 	return nil
 }
 
-// checkExposure refuses a web UI that other machines can reach while it has
-// dangerous features on, unless the user confirmed that this is fine. The UI
-// has no login. The dangerous feature of today is the packet view: the payload
-// of a packet can hold secrets (cookies, tokens, passwords). A feature added
-// later that is risky to expose belongs behind the same check.
-func checkExposure(listen string, packetView, confirmed bool) error {
-	host, _, err := net.SplitHostPort(listen)
+// minTokenLen is the shortest access token pathviz accepts from the user.
+const minTokenLen = 16
+
+// readTokenFile reads an access token from a file. The token is not a flag of
+// its own, because the other users of the machine can see the command line of
+// a running program. For the same reason the file must be private.
+func readTokenFile(path string) (string, error) {
+	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("bad --listen address: %v", err)
+		return "", fmt.Errorf("cannot read the token file: %v", err)
 	}
-	if loopbackHost(host) || !packetView || confirmed {
-		return nil
+	if info.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("the token file %s is open to other users (mode %04o): run chmod 600 on it", path, info.Mode().Perm())
 	}
-	return fmt.Errorf(`refusing to serve the web UI on %s: it has no login, and it shows the traced packets in full, payload included (cookies, tokens, passwords).
-Pick one:
-  --listen 127.0.0.1:7070   keep the UI on this machine (reach it with: ssh -L 7070:127.0.0.1:7070 <machine>)
-  --no-packet-view          do not keep the bytes of the packets
-  --dangerously-listen-on-network
-                            accept that everyone who can reach %s uses the UI in full
-                            and reads the traced packets`, listen, listen)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot read the token file: %v", err)
+	}
+	token := strings.TrimSpace(string(b))
+	if token == "" {
+		return "", fmt.Errorf("the token file %s is empty", path)
+	}
+	return token, nil
 }
 
-// loopbackHost tells whether a listen host is reachable from this machine only.
-// An empty host and 0.0.0.0 (or ::) mean all the addresses of the machine.
-func loopbackHost(host string) bool {
-	if host == "localhost" {
-		return true
+// pickToken returns the access token of the web UI: the one of the token file,
+// else the one of the PATHVIZ_TOKEN variable, else a new random one.
+// The token is empty when the check is off. own tells that the user chose it.
+func pickToken(fileValue, envValue string, skip bool) (token string, own bool, err error) {
+	token = fileValue
+	if token == "" {
+		token = envValue
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	switch {
+	case skip && token != "":
+		return "", false, errors.New("--dangerously-skip-token turns the access token off, so it cannot be combined with --token-file or PATHVIZ_TOKEN")
+	case skip:
+		return "", false, nil
+	case token == "":
+		token, err = newToken()
+		if err != nil {
+			return "", false, fmt.Errorf("cannot make the access token: %v", err)
+		}
+		return token, false, nil
+	case len(token) < minTokenLen:
+		return "", false, fmt.Errorf("the access token is too short: it needs at least %d characters", minTokenLen)
+	}
+	for _, c := range token {
+		if c <= ' ' || c > '~' {
+			return "", false, errors.New("the access token can hold only visible ASCII characters, without spaces")
+		}
+	}
+	return token, true, nil
+}
+
+// newToken returns a random access token for the web UI.
+func newToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }

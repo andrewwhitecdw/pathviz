@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,10 @@ const backlogSize = 300
 
 // App is the state shared by the capture side and the HTTP side.
 type App struct {
+	// token is the secret every API request must carry. It is empty when the
+	// check is off (--dangerously-skip-token).
+	token string
+
 	group int
 	// packetView tells whether the bytes of the traced packets are kept and served.
 	packetView bool
@@ -271,15 +276,53 @@ func (a *App) handlePacket(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"id": j.ID, "hops": hops})
 }
 
-// Handler returns the HTTP handler of the UI and its API.
+// tokenMatches compares a value with the access token in constant time.
+func (a *App) tokenMatches(got string) bool {
+	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(a.token)) == 1
+}
+
+// authorized tells whether the request carries the access token: in the
+// Authorization header, or in the URL for an EventSource, which cannot set
+// headers. A cookie is not accepted, and PathViz never sets one: a browser
+// sends the cookies of a host to every port of it, so any other web server of
+// the machine that the browser visits would get the token.
+func (a *App) authorized(r *http.Request) bool {
+	if a.token == "" {
+		return true
+	}
+	if bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && a.tokenMatches(bearer) {
+		return true
+	}
+	return a.tokenMatches(r.URL.Query().Get("token"))
+}
+
+// Handler returns the HTTP handler of the UI and its API. The files of the
+// page hold no secrets and are open to everyone. The API is not: without the
+// token the page can neither see a packet nor change anything.
 func (a *App) Handler() http.Handler {
-	mux := http.NewServeMux()
+	api := http.NewServeMux()
+	api.HandleFunc("/api/events", a.handleEvents)
+	api.HandleFunc("/api/filter", a.handleFilter)
+	api.HandleFunc("/api/clear", a.handleClear)
+	api.HandleFunc("/api/ruleset", a.handleRuleset)
+	api.HandleFunc("/api/packet", a.handlePacket)
+	// The page asks this one whether its token is right.
+	api.HandleFunc("/api/session", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+
 	static, _ := fs.Sub(webFS, "web")
-	mux.Handle("/", http.FileServer(http.FS(static)))
-	mux.HandleFunc("/api/events", a.handleEvents)
-	mux.HandleFunc("/api/filter", a.handleFilter)
-	mux.HandleFunc("/api/clear", a.handleClear)
-	mux.HandleFunc("/api/ruleset", a.handleRuleset)
-	mux.HandleFunc("/api/packet", a.handlePacket)
+	files := http.FileServer(http.FS(static))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// The address of the page can hold the token: it must not leak to other sites.
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		files.ServeHTTP(w, r)
+	})
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		if !a.authorized(r) {
+			http.Error(w, "the access token is missing or wrong", http.StatusUnauthorized)
+			return
+		}
+		api.ServeHTTP(w, r)
+	})
 	return mux
 }

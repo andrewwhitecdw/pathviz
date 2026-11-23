@@ -45,7 +45,7 @@ cd pathviz
 make demo-local
 ```
 
-Then open http://127.0.0.1:7070 on that machine. `make demo-local-stop` stops the demo.
+Then open the address it prints (`http://127.0.0.1:7070/?token=...`) on that machine. `make demo-local-stop` stops the demo.
 
 ## Usage
 
@@ -63,7 +63,15 @@ Then run it. It needs root, `nft`, `ss`, and the `nfnetlink_log` kernel module:
 sudo pathviz
 ```
 
-Then open http://127.0.0.1:7070 on that machine. The page shows every packet until you set a filter in it.
+It prints the address of its web UI:
+
+```
+web UI on http://127.0.0.1:7070/?token=3f0c6a...
+```
+
+Open it on that machine. The page shows every packet until you set a filter in it.
+
+The address holds an access token. PathViz makes a new one at every start, and the web UI answers only to those who have it. To keep one token over the restarts, put your own (at least 16 characters) into a file that only its owner can read and pass it with `--token-file <path>`, or set the `PATHVIZ_TOKEN` environment variable. There is no flag for the token itself, because other users of the machine can see the flags of a running program. PathViz does not print a token of your own. The page takes the token out of the address bar and remembers it, so the plain http://127.0.0.1:7070 works in the same browser until PathViz is restarted. The token is kept in the browser's storage for this address and port, not in a cookie: a browser sends the cookies of a host to every port of it, so another web server on the same machine would get the token. A page without the right token asks for it.
 
 The web UI listens on `127.0.0.1:7070` by default, so only the machine itself can open it. To open it from your own computer, forward the port over SSH:
 
@@ -72,16 +80,17 @@ ssh -L 7070:127.0.0.1:7070 <machine>
 ```
 
 > [!CAUTION]
-> The UI has no login and no TLS. Anyone who can reach its port can:
+> Whoever has the token can:
 >
 > - See the traced traffic: the addresses, the ports, the interfaces, and the names and PIDs of the processes with listening sockets.
-> - Read the traced packets in full, payload included. PathViz keeps up to 2048 bytes of every traced packet for the packet view, and a payload can hold cookies, tokens, and passwords.
+> - Read the traced packets in full, payload included. PathViz keeps up to 2048 bytes of every traced packet for the packet view, and a payload can hold cookies, tokens, and passwords. With `--no-packet-view` PathViz keeps no packet bytes, and the page has no Inspect button.
 > - Change the filter, and with it the nftables rules that PathViz (a root process) installs. A filter that matches all traffic logs every packet at every stage, which can slow down a busy machine, and makes the payload of all of the machine's traffic readable.
 >
-> For that reason PathViz refuses to start with a `--listen` address that other machines can reach (e.g. `0.0.0.0:7070`), unless one of these flags is passed:
+> So treat the address with the token as a password:
 >
-> - `--no-packet-view` keeps no packet bytes. The UI shows where a packet went, without the Inspect button. The first and the last point above still apply.
-> - `--dangerously-listen-on-network` serves the UI as it is, with everything it can show and do, to everyone who can reach it. All three points above then apply. Use it only on a network you trust and with traffic that holds no secrets, such as a lab playground.
+> - PathViz writes it to its output. When PathViz runs as a service, the address is in the service's log (e.g. `journalctl -u <unit>`).
+> - The web UI has no TLS. With `--listen 0.0.0.0:7070` the UI is reachable on every address of the machine, and the token crosses the network in the clear: anyone who can watch that network can pick it up. Prefer the SSH forward above, or put a TLS proxy in front.
+> - `--dangerously-skip-token` turns the token off. Everyone who can reach the `--listen` address can then do all of the above. That includes the other users and programs of the machine when the UI listens on localhost, and any website open in a browser on it. Use it only on a throwaway machine whose traffic holds no secrets, such as a lab playground.
 
 To get some traffic to look at, start a web server on the machine and send requests to it:
 
@@ -115,7 +124,7 @@ sudo iptables -t nat -A PREROUTING -p tcp --dport 8080 -j REDIRECT --to-ports 90
 - The output device of a packet is unknown in PREROUTING. With an output interface in the filter, the PREROUTING probes log every packet that satisfies the rest of the filter, and PathViz keeps only the packets that leave through that interface later. If the filter also has ports or addresses and NAT rewrites them in PREROUTING, such a packet is missed.
 - Traffic is traced in the network namespace PathViz runs in.
 - The packet view starts at the IP header (there is no Ethernet header at the netfilter hooks) and shows at most the first 2048 bytes of a packet. It decodes every packet on its own, without putting TCP streams together: an HTTP message is recognized only in the segment that starts it, and TLS only in its handshake records. The checksums of locally sent packets are often not filled in yet at the hooks (the network card does it later).
-- The web UI has no login. It listens on localhost by default for that reason, and it does not start on other addresses without `--no-packet-view` or `--dangerously-listen-on-network` (see the caution in "Usage"). The filter values are validated, and requests from other websites are rejected.
+- The web UI is protected by an access token only (see the caution in "Usage"). It has no user accounts and no TLS. The filter values are validated, and requests from other websites are rejected.
 - If the kernel has to drop probe events (very busy filter), the page shows a warning and marks the affected packets, because a "stopped" outcome may then be wrong.
 
 ## Embedding on an existing page
@@ -137,6 +146,8 @@ The embedded page's layout can be configured via its URL, so a view of it can be
 ```html
 <iframe src="https://<pathviz-url>/?view=embed&detail=hooks&port=8080&ifaces=eth0&procs=:8080" width="100%" height="460"></iframe>
 ```
+
+An embedded view needs the access token like any other page. Either add `token=<token>` to its URL and give that PathViz a token of its own (`--token-file`), so it stays the same over the restarts, or run that PathViz with `--dangerously-skip-token`. A token in the URL of an embed is readable by everyone who can read the embedding page.
 
 ### Several embeds of one PathViz
 

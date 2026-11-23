@@ -2,15 +2,13 @@
 # The demo on a single Linux machine. Run it as root (the Makefile's "demo-local"
 # and "demo-local-stop" targets do):
 #
-#   local.sh start <path to the pathviz binary> [address of the web UI]
+#   local.sh start <pathviz binary> [address of the web UI] [more pathviz flags]
 #   local.sh stop
 #
-# "start" runs three processes on the machine:
-#   - a web server on port 8080 (python3 -m http.server)
-#   - a client that sends it a request every two seconds (curl)
-#   - PathViz, which traces the packets of port 8080
-# The requests go over the loopback interface, so every packet crosses OUTPUT
-# and POSTROUTING on its way out and PREROUTING and INPUT on its way back in.
+# "start" runs a web server on port 8080, a client that sends it a request
+# every two seconds over the loopback interface, and PathViz, which traces the
+# packets of port 8080. Every packet crosses OUTPUT and POSTROUTING on its way
+# out and PREROUTING and INPUT on its way back in.
 set -eu
 
 UNITS="pathviz-local-daemon pathviz-local-web pathviz-local-send"
@@ -26,37 +24,46 @@ stop() {
 start() {
 	bin="$1"
 	listen="${2:-127.0.0.1:7070}"
+	# The rest of the arguments are flags for pathviz.
+	shift
+	[ $# -eq 0 ] || shift
 	stop
 
 	mkdir -p /tmp/pathviz-demo
 	echo "Hello from the PathViz demo!" > /tmp/pathviz-demo/index.html
 	systemd-run --quiet --unit pathviz-local-web python3 -m http.server 8080 --directory /tmp/pathviz-demo
-	# A web UI that other machines can reach must be confirmed. The traffic of
-	# the demo holds no secrets, so its packets may be read from outside.
-	danger=""
-	case "$listen" in
-		127.*|localhost:*) ;;
-		*) danger="--dangerously-listen-on-network" ;;
-	esac
-	# shellcheck disable=SC2086
-	systemd-run --quiet --unit pathviz-local-daemon "$bin" --listen "$listen" $danger --proto tcp --port 8080
+	since=$(date '+%Y-%m-%d %H:%M:%S')
+	systemd-run --quiet --unit pathviz-local-daemon "$bin" --listen "$listen" --proto tcp --port 8080 "$@"
 	systemd-run --quiet --unit pathviz-local-send \
 		sh -c 'while true; do curl -s -m 2 -o /dev/null http://127.0.0.1:8080/; sleep 2; done'
 
-	echo "The demo runs. The web UI is on http://$listen."
+	# PathViz logs the address of its web UI, with the access token in it.
+	# Only this start counts: an earlier one had another token.
+	url=""
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
+		url=$(journalctl -u pathviz-local-daemon --since "$since" -o cat --no-pager 2>/dev/null | sed -n 's/.*web UI on \(http[^ ]*\).*/\1/p' | tail -n 1)
+		[ -n "$url" ] && break
+		sleep 0.5
+	done
+	if [ -z "$url" ]; then
+		echo "PathViz did not start, see: journalctl -u pathviz-local-daemon" >&2
+		exit 1
+	fi
+	echo "The demo runs. The web UI is on $url"
 	echo "Stop it with: make demo-local-stop"
 }
 
 case "${1:-}" in
 start)
-	[ -n "${2:-}" ] || { echo "usage: $0 start <path to the pathviz binary> [address of the web UI]" >&2; exit 1; }
-	start "$2" "${3:-}"
+	[ -n "${2:-}" ] || { echo "usage: $0 start <pathviz binary> [address of the web UI] [more pathviz flags]" >&2; exit 1; }
+	shift
+	start "$@"
 	;;
 stop)
 	stop
 	;;
 *)
-	echo "usage: $0 start <path to the pathviz binary> [address of the web UI] | stop" >&2
+	echo "usage: $0 start <pathviz binary> [address of the web UI] [more pathviz flags] | stop" >&2
 	exit 1
 	;;
 esac

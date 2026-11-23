@@ -1,7 +1,8 @@
 #!/bin/sh
-# Prepares the demo on the target machine. Run it as root (the Makefile's "demo-dev-playground" target does).
+# The target's part of the playground demo. Run it as root (the Makefile's
+# "demo-dev-playground" target does).
 #
-# It starts PathViz and two web servers (python3 -m http.server):
+# It starts PathViz and two web servers:
 #   - on the target itself, port 8080 (traffic to it crosses PREROUTING and INPUT)
 #   - in the "app" network namespace behind the target, 10.200.0.2:9000
 #     (traffic to it crosses PREROUTING, FORWARD, and POSTROUTING)
@@ -25,6 +26,6 @@ mkdir -p /srv/pathviz-demo
 echo "Hello from the PathViz demo!" > /srv/pathviz-demo/index.html
 systemd-run --quiet --unit pathviz-web python3 -m http.server 8080 --directory /srv/pathviz-demo
 systemd-run --quiet --unit pathviz-web-app ip netns exec app python3 -m http.server 9000 --directory /srv/pathviz-demo
-# The filter covers both flows. A page narrows it down by a click or, when embedded, by its URL.
-# The playground's pathviz tab reaches the UI from outside, so it cannot stay on localhost.
-systemd-run --quiet --unit pathviz /usr/local/bin/pathviz --listen 0.0.0.0:7070 --dangerously-listen-on-network --proto tcp --port 8080,9000
+# The filter covers both flows. The playground's pathviz tab opens the UI from
+# outside and without the access token. Only the playground's owner can reach it.
+systemd-run --quiet --unit pathviz /usr/local/bin/pathviz --listen 0.0.0.0:7070 --dangerously-skip-token --proto tcp --port 8080,9000

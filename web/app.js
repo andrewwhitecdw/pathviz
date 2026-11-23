@@ -238,6 +238,34 @@ const MAX_ROWS = 300;
 // different traffic. It comes from the URL, with the names of the command-line
 // flags: ?proto=tcp&port=8080&ip=10.0.0.1&iface=in:eth0.
 const params = new URLSearchParams(location.search);
+
+// The access token. PathViz prints the address of the page with the token in
+// it. The page takes the token out of the address bar, keeps it for the next
+// visits, and sends it with every call of the API. It is kept in the storage
+// of this origin (host and port) and not in a cookie: a browser sends the
+// cookies of a host to every port of it, so another web server of the same
+// machine would get the token.
+const TOKEN_KEY = 'pathviz.token';
+let token = params.get('token') || '';
+function keepToken(value) {
+  token = value;
+  try { localStorage.setItem(TOKEN_KEY, value); } catch { /* the token then lives as long as the page */ }
+}
+if (token) {
+  keepToken(token);
+  params.delete('token');
+  const rest = params.toString();
+  history.replaceState(null, '', location.pathname + (rest ? `?${rest}` : '') + location.hash);
+} else {
+  try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch { /* no storage, no kept token */ }
+}
+
+// api calls the API of PathViz with the token.
+function api(path, opts = {}) {
+  const headers = { ...opts.headers };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(path, { ...opts, headers });
+}
 const listParam = (name) => (params.has(name) ? params.get(name).split(',').map((v) => v.trim()).filter(Boolean) : null);
 const view = {
   embed: params.get('view') === 'embed',
@@ -1056,7 +1084,7 @@ async function openPacket(j) {
   if (!dialog.open) dialog.showModal();
   let data;
   try {
-    const res = await fetch(`api/packet?id=${j.id}`);
+    const res = await api(`api/packet?id=${j.id}`);
     if (res.status === 404) throw new Error('PathViz does not keep this packet anymore, so its bytes cannot be shown.');
     if (!res.ok) throw new Error(`Cannot load the packet: ${(await res.text()).trim()}`);
     data = await res.json();
@@ -1341,11 +1369,61 @@ function showFilter(f) {
   markDirty();
 }
 
-function connect() {
-  const es = new EventSource('api/events');
+// askToken shows the dialog that asks for the access token. It stays until
+// the right token is entered.
+function askToken() {
   const conn = $('#conn');
+  conn.className = 'conn down';
+  conn.textContent = 'Token needed';
+  const dialog = $('#token-dialog');
+  if (!dialog.open) dialog.showModal();
+}
+
+$('#token-dialog').addEventListener('cancel', (e) => e.preventDefault());
+$('#token-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = $('#token-msg');
+  // The whole address that PathViz printed can be pasted as well.
+  const text = $('#token-input').value.trim();
+  const fromUrl = /[?&]token=([^&#\s]+)/.exec(text);
+  const candidate = fromUrl ? decodeURIComponent(fromUrl[1]) : text;
+  if (!candidate) return;
+  try {
+    const res = await fetch('api/session', { headers: { Authorization: `Bearer ${candidate}` } });
+    if (res.status === 401) { msg.textContent = 'This is not the token of this PathViz.'; return; }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (err) {
+    msg.textContent = `Cannot reach PathViz: ${err.message}`;
+    return;
+  }
+  msg.textContent = '';
+  $('#token-input').value = '';
+  keepToken(candidate);
+  $('#token-dialog').close();
+  connect();
+});
+
+async function connect() {
+  const conn = $('#conn');
+  const retry = () => { conn.className = 'conn down'; conn.textContent = 'Reconnecting'; setTimeout(connect, 2000); };
+  // An EventSource does not tell why it failed, so the token is checked first.
+  try {
+    const res = await api('api/session');
+    if (res.status === 401) { askToken(); return; }
+    if (!res.ok) { retry(); return; }
+  } catch {
+    retry();
+    return;
+  }
+  const es = new EventSource(token ? `api/events?token=${encodeURIComponent(token)}` : 'api/events');
   es.onopen = () => { conn.className = 'conn up'; conn.textContent = 'Connected'; };
-  es.onerror = () => { conn.className = 'conn down'; conn.textContent = 'Reconnecting'; };
+  es.onerror = () => {
+    conn.className = 'conn down';
+    conn.textContent = 'Reconnecting';
+    // A refused EventSource gives up for good. A restarted PathViz has a new
+    // token, so the token is checked again.
+    if (es.readyState === EventSource.CLOSED) setTimeout(connect, 2000);
+  };
   es.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     switch (msg.type) {
@@ -1380,7 +1458,7 @@ function connect() {
 async function applyFilter(filter) {
   const msg = $('#filter-msg');
   try {
-    const res = await fetch('api/filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(filter) });
+    const res = await api('api/filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(filter) });
     if (!res.ok) throw new Error((await res.text()).trim());
     msg.className = 'ok';
     msg.textContent = 'Probes updated.';
@@ -1429,10 +1507,10 @@ $('#live-btn').addEventListener('click', () => {
   if (state.live && state.journeys.length) showJourney(state.journeys[state.journeys.length - 1], true);
 });
 
-$('#clear-btn').addEventListener('click', () => fetch('api/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }));
+$('#clear-btn').addEventListener('click', () => api('api/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }));
 
 $('#help-btn').addEventListener('click', async () => {
-  const res = await fetch('api/ruleset');
+  const res = await api('api/ruleset');
   // The comments are dimmed, and their [static] and [filter] labels stand out.
   const pre = $('#rules-text');
   pre.textContent = '';

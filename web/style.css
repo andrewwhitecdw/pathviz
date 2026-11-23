@@ -410,6 +410,12 @@ dialog pre .tag { font-weight: 700; }
 dialog pre .tag.dynamic { color: var(--nat); }
 dialog pre { flex: 1 1 auto; min-height: 120px; background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow: auto; margin: 0 0 12px; tab-size: 2; }
 
+/* The dialog that asks for the access token. */
+#token-dialog { width: min(520px, 92vw); }
+#token-form { display: flex; gap: 8px; }
+#token-form input { flex: 1; min-width: 0; }
+dialog .token-msg { min-height: 1.45em; margin: 8px 0 0; color: var(--stop); }
+
 /* The packet view: the switcher of the probes, then the fields of the packet
    on the left and its bytes on the right. Both sides scroll on their own. */
 #packet-dialog { width: min(1120px, 94vw); height: min(780px, 88vh); }
